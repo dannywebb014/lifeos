@@ -151,12 +151,6 @@
     .item .dot { font-style: normal; color: var(--accent); }
     .item:focus-visible { outline: none; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 6px; }
 
-    .caption {
-      position: relative; text-align: center; min-height: 3.2rem;
-      color: var(--muted);
-    }
-    .caption .what { font-size: 1.05rem; }
-    .caption .hint { font-size: .85rem; opacity: .75; margin-top: .2rem; }
 
     /* ── Full-screen app ── */
     .sheet {
@@ -187,23 +181,33 @@
     iframe.on { visibility: visible; }
     iframe.on.ready { opacity: 1; }
 
-    /* the close button floats over the app; drag it out of the way if it covers something */
+    /* a small close button in the top-left corner */
     .close {
-      position: fixed; z-index: 11;
-      left: calc(50% - 24px); top: calc(10px + env(safe-area-inset-top));
-      width: 48px; height: 48px; border-radius: 50%;
-      border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-      background: color-mix(in srgb, var(--surface) 72%, transparent);
-      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-      box-shadow: 0 4px 16px rgba(0,0,0,.18);
+      position: fixed; z-index: 12;
+      left: calc(8px + env(safe-area-inset-left)); top: calc(8px + env(safe-area-inset-top));
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 0;
+      background: color-mix(in srgb, var(--text) 14%, transparent);
+      -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
       color: var(--text);
       display: grid; place-items: center;
-      cursor: pointer; touch-action: none;
-      opacity: 0; transform: scale(.6); pointer-events: none;
-      transition: opacity .3s .2s, transform .3s .2s;
+      cursor: pointer;
+      opacity: 0; pointer-events: none;
+      transition: opacity .3s .2s;
     }
-    body.open .close { opacity: 1; transform: none; pointer-events: auto; }
-    .close svg { width: 20px; height: 20px; }
+    body.open .close { opacity: .55; pointer-events: auto; }
+    body.open .close:hover { opacity: .9; }
+    /* 16px must be visible even over busy apps, so the hit area stays 28px */
+    .close::before { content: ""; position: absolute; inset: -8px; }
+
+    /* an invisible strip down the left edge picks up the swipe back */
+    .edge {
+      position: fixed; z-index: 11; left: 0; top: 0; bottom: 0; width: 18px;
+      touch-action: none; display: none;
+    }
+    body.open .edge { display: block; }
+    .sheet.swiping { transition: none; }
+    .close svg { width: 12px; height: 12px; }
   </style>
 </head>
 <body>
@@ -217,30 +221,27 @@
       <div class="lens"></div>
       <div class="wheel" id="wheel" tabindex="0" role="listbox" aria-label="Apps"></div>
     </div>
-    <div class="caption" aria-live="polite">
-      <p class="what" id="what"></p>
-      <p class="hint">tap to open</p>
-    </div>
   </div>
 
   <section class="sheet" id="sheet" aria-hidden="true">
     <div class="loading" id="loading"></div>
   </section>
+  <div class="edge" id="edge"></div>
   <button class="close" id="close" aria-label="Back to lifeOS.">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
   </button>
 
   <script>
     // Each app stays where it is; this page only frames them.
     const APPS = [
-      { id: 'cal',        name: 'calendar',   what: 'what’s on',                 url: 'https://dannywebb014.github.io/calhub/' },
-      { id: 'tasks',      name: 'tasks',      what: 'what to do',                url: 'https://dannywebb014.github.io/taskhub/' },
-      { id: 'food',       name: 'food',       what: 'meals and shopping',        url: 'https://food-hub-weld-five.vercel.app/' },
-      { id: 'train',      name: 'train',      what: 'your training log',         url: 'https://fitnesshub-woad.vercel.app/' },
-      { id: 'breathe',    name: 'breathe',    what: 'slow down and breathe',     url: 'https://dannywebb014.github.io/breathhub/' },
-      { id: 'motivation', name: 'motivation', what: 'a quote to get you going',  url: 'https://dannywebb014.github.io/motivation/' },
-      { id: 'places',     name: 'places',     what: 'places to eat, visit and do', url: 'https://dannywebb014.github.io/places/' },
-      { id: 'money',      name: 'money',      what: 'the household finances',    url: 'https://money-dannywebb014s-projects.vercel.app/' },
+      { id: 'cal',        name: 'calendar',   url: 'https://dannywebb014.github.io/calhub/' },
+      { id: 'tasks',      name: 'tasks',      url: 'https://dannywebb014.github.io/taskhub/' },
+      { id: 'food',       name: 'food',       url: 'https://food-hub-weld-five.vercel.app/' },
+      { id: 'train',      name: 'train',      url: 'https://fitnesshub-woad.vercel.app/' },
+      { id: 'breathe',    name: 'breathe',    url: 'https://dannywebb014.github.io/breathhub/' },
+      { id: 'motivation', name: 'motivation', url: 'https://dannywebb014.github.io/motivation/' },
+      { id: 'places',     name: 'places',     url: 'https://dannywebb014.github.io/places/' },
+      { id: 'money',      name: 'money',      url: 'https://money-dannywebb014s-projects.vercel.app/' },
     ];
 
     const root = document.documentElement.style;
@@ -294,14 +295,13 @@
         b.style.transform = `rotateX(${Math.max(-60, Math.min(60, -d * 14))}deg) scale(${1 - a * .06})`;
         b.style.opacity = Math.max(.2, 1 - a * .2);
       }
-      if (centre % n !== current || !$('what').textContent) setCurrent(centre % n);
+      if (centre % n !== current || !root.getPropertyValue('--now-accent')) setCurrent(centre % n);
     }
     function setCurrent(i) {
       current = i;
       const app = APPS[i];
       root.setProperty('--now-accent', `var(--${app.id}-accent)`);
       root.setProperty('--now-logo', `var(--${app.id}-logo)`);
-      $('what').textContent = app.what;
       items.forEach((b, j) => b.setAttribute('aria-selected', j === MID * n + i));
     }
     let ticking = false, idle;
@@ -341,6 +341,7 @@
     function open(app, push = true) {
       if (openId === app.id) return;
       openId = app.id;
+      sheet.style.transform = sheet.style.transition = '';
       setCurrent(APPS.indexOf(app));
       loading.innerHTML = `${app.name}<span class="dot">.</span>`;
       const f = frameFor(app);
@@ -371,24 +372,44 @@
     });
     addEventListener('keydown', e => { if (e.key === 'Escape' && openId) back(); });
 
-    // Close button: tap to go back, or drag it anywhere that isn't in the way.
-    const btn = $('close');
-    let drag = null;
-    btn.addEventListener('pointerdown', e => {
-      const r = btn.getBoundingClientRect();
-      drag = { x: e.clientX, y: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
-      btn.setPointerCapture(e.pointerId);
+    $('close').onclick = back;
+
+    // Swipe right from the left edge: the app follows your finger, and
+    // letting go past a third of the way (or with a flick) closes it.
+    const edge = $('edge');
+    let swipe = null;
+    edge.addEventListener('pointerdown', e => {
+      swipe = { x: e.clientX, t: performance.now(), dx: 0 };
+      edge.setPointerCapture(e.pointerId);
+      sheet.classList.add('swiping');
     });
-    btn.addEventListener('pointermove', e => {
-      if (!drag) return;
-      if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
-      drag.moved = true;
-      const w = btn.offsetWidth;
-      btn.style.left = Math.max(4, Math.min(innerWidth - w - 4, e.clientX - drag.dx)) + 'px';
-      btn.style.top = Math.max(4, Math.min(innerHeight - w - 4, e.clientY - drag.dy)) + 'px';
+    edge.addEventListener('pointermove', e => {
+      if (!swipe) return;
+      swipe.dx = Math.max(0, e.clientX - swipe.x);
+      sheet.style.transform = `translateX(${swipe.dx}px)`;
     });
-    btn.addEventListener('pointerup', () => { if (drag && !drag.moved) back(); drag = null; });
-    btn.addEventListener('pointercancel', () => { drag = null; });
+    function endSwipe() {
+      if (!swipe) return;
+      const { dx, t } = swipe;
+      swipe = null;
+      const fast = dx / (performance.now() - t) > 0.5;
+      sheet.classList.remove('swiping');
+      sheet.style.transition = 'transform .25s ease-out';
+      if (dx > innerWidth / 3 || (fast && dx > 40)) {
+        sheet.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+          sheet.style.transition = 'none';
+          back();
+          // put the sheet back once its close animation has run off-screen
+          setTimeout(() => { sheet.style.transform = ''; sheet.style.transition = ''; }, 520);
+        }, 250);
+      } else {
+        sheet.style.transform = '';
+        setTimeout(() => { sheet.style.transition = ''; }, 260);
+      }
+    }
+    edge.addEventListener('pointerup', endSwipe);
+    edge.addEventListener('pointercancel', endSwipe);
 
     // ── start ──
     const start = APPS.find(x => x.id === location.hash.slice(1));
