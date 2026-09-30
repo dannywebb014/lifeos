@@ -234,7 +234,9 @@
   <script>
     // Each app stays where it is; this page only frames them.
     const APPS = [
-      { id: 'cal',        name: 'calendar',   url: 'https://dannywebb014.github.io/calhub/' },
+      // unload: closed rather than kept in the background, because calendar.
+      // re-signs in to Google when the phone wakes, and that takes over the whole page.
+      { id: 'cal',        name: 'calendar',   url: 'https://dannywebb014.github.io/calhub/', unload: true },
       { id: 'tasks',      name: 'tasks',      url: 'https://dannywebb014.github.io/taskhub/' },
       { id: 'food',       name: 'food',       url: 'https://food-hub-weld-five.vercel.app/' },
       { id: 'train',      name: 'train',      url: 'https://fitnesshub-woad.vercel.app/' },
@@ -327,10 +329,10 @@
 
     // ── full screen ──
     // Frames load on first open, then stay alive so going back keeps your place.
-    function frameFor(app) {
+    function frameFor(app, hash = '') {
       if (frames[app.id]) return frames[app.id];
       const f = document.createElement('iframe');
-      f.src = app.url;
+      f.src = app.url + hash;
       f.title = app.name + '.';
       f.allow = 'geolocation; microphone; camera; clipboard-read; clipboard-write; fullscreen';
       f.addEventListener('load', () => f.classList.add('ready'));
@@ -338,13 +340,13 @@
       return frames[app.id] = f;
     }
 
-    function open(app, push = true) {
+    function open(app, push = true, hash = '') {
       if (openId === app.id) return;
       openId = app.id;
       sheet.style.transform = sheet.style.transition = '';
       setCurrent(APPS.indexOf(app));
       loading.innerHTML = `${app.name}<span class="dot">.</span>`;
-      const f = frameFor(app);
+      const f = frameFor(app, hash);
       for (const x of Object.values(frames)) x.classList.toggle('on', x === f);
       document.body.classList.add('open');
       sheet.setAttribute('aria-hidden', 'false');
@@ -359,7 +361,9 @@
       sheet.setAttribute('aria-hidden', 'true');
       document.title = 'lifeOS.';
       setTimeout(() => {
-        if (!openId) for (const x of Object.values(frames)) x.classList.remove('on');
+        if (openId) return;
+        for (const x of Object.values(frames)) x.classList.remove('on');
+        for (const app of APPS) if (app.unload && frames[app.id]) { frames[app.id].remove(); delete frames[app.id]; }
       }, 500);
       wheel.focus({ preventScroll: true });
     }
@@ -412,13 +416,17 @@
     edge.addEventListener('pointercancel', endSwipe);
 
     // ── start ──
-    const start = APPS.find(x => x.id === location.hash.slice(1));
+    // calendar. signs in to Google through this whole page, since Google won't
+    // show sign-in inside a frame. Google comes back here with the reply in
+    // the hash, which is handed to the calendar. frame to finish signing in.
+    const googleReply = /(?:^#|&)(?:access_token|error)=/.test(location.hash) ? location.hash : '';
+    const start = googleReply ? APPS.find(x => x.id === 'cal') : APPS.find(x => x.id === location.hash.slice(1));
     requestAnimationFrame(() => {
       toApp(start ? APPS.indexOf(start) : 0);
       paint();
       if (start) {
         history.replaceState(null, '', location.pathname);
-        open(start);
+        open(start, true, googleReply);
       } else {
         wheel.focus({ preventScroll: true });
       }
