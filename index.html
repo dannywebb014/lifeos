@@ -21,9 +21,10 @@
   <style>
     /* Same tokens as lifeOS. (myhub-homepage) */
     :root {
-      --bg: #f4f1ea; --surface: #fffdf8; --hover: #f9f6ef;
+      --bg: #f4f1ea; --surface: #fffdf8;
       --line: #e5dfd0;
       --text: #2c2218; --muted: #6b6055;
+      --noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.035 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
 
       --life-logo: #5a4fa0;  --life-accent: #7d6fd6;
       --food-logo: #3d6b3d;  --food-accent: #4a7c4a;
@@ -35,16 +36,18 @@
       --places-logo: #8f2f52; --places-accent: #b8436d;
       --cal-logo: #2f6aa3; --cal-accent: #3b7bbf;
 
+      --glow: .28;
       --disp: 'Lora', Georgia, serif;
       --body: 'Source Sans 3', system-ui, -apple-system, Helvetica, Arial, sans-serif;
-      --bar: 3.25rem;
+      --row: 76px;
       color-scheme: light;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #1a1e1a; --surface: #232823; --hover: #2a302a;
+        --bg: #1a1e1a; --surface: #232823;
         --line: #3a423a;
         --text: #ebe8de; --muted: #a8a89c;
+        --noise: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
         --life-logo: #c9c1ff;  --life-accent: #b4a9ff;
         --food-logo: #9fc89f;  --food-accent: #5a8a5a;
         --train-logo: #e8a085; --train-accent: #d97a52;
@@ -54,6 +57,7 @@
         --tasks-logo: #8fd0c9; --tasks-accent: #4fa8a0;
         --places-logo: #f0a8c4; --places-accent: #e0789f;
         --cal-logo: #a9cdf2; --cal-accent: #6fa8e0;
+        --glow: .22;
         color-scheme: dark;
       }
     }
@@ -65,166 +69,339 @@
       color: var(--text);
       font-family: var(--body);
       -webkit-font-smoothing: antialiased;
-      display: flex;
-      flex-direction: column;
+      text-rendering: optimizeLegibility;
+      -webkit-tap-highlight-color: transparent;
     }
 
-    /* ── Frames ── */
-    main { position: relative; flex: 1; min-height: 0; }
-    iframe {
+    /* ── Home: glow, title, wheel ── */
+    .home {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column; align-items: center;
+      padding: calc(2rem + env(safe-area-inset-top)) 1rem calc(1.5rem + env(safe-area-inset-bottom));
+      background-image: var(--noise);
+      transition: transform .45s cubic-bezier(.2,.8,.2,1), filter .45s;
+    }
+    body.open .home { transform: scale(.94); filter: blur(6px); }
+
+    /* two soft orbs that drift and take the colour of the app in the middle */
+    .orb {
+      position: absolute; border-radius: 50%;
+      width: 80vmax; height: 80vmax;
+      background: radial-gradient(circle, var(--now-accent) 0%, transparent 62%);
+      opacity: var(--glow);
+      transition: background .6s;
+      pointer-events: none;
+      animation: drift 18s ease-in-out infinite alternate;
+    }
+    .orb.a { left: -40vmax; top: -30vmax; }
+    .orb.b { right: -45vmax; bottom: -40vmax; animation-duration: 23s; animation-direction: alternate-reverse; }
+    @keyframes drift { to { transform: translate(12vmax, 10vmax) scale(1.15); } }
+    @media (prefers-reduced-motion: reduce) { .orb { animation: none; } }
+
+    .top { position: relative; text-align: center; }
+    .title {
+      font-family: var(--disp); font-style: italic; font-weight: 600;
+      font-size: clamp(2.6rem, 10vw, 4.2rem);
+      letter-spacing: -0.03em; line-height: 1.1;
+      color: var(--life-logo);
+    }
+    .title .dot { font-style: normal; color: var(--life-accent); }
+    .greet { margin-top: .35rem; color: var(--muted); font-size: 1rem; }
+
+    .wheel-wrap {
+      position: relative; flex: 1; min-height: 0;
+      max-height: calc(var(--row) * 7);
+      width: 100%; max-width: 520px;
+      margin: auto 0;
+      /* fade the rows out towards the edges */
+      -webkit-mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent);
+              mask-image: linear-gradient(transparent, #000 22%, #000 78%, transparent);
+    }
+    /* the lens: a card behind the middle row */
+    .lens {
+      position: absolute; left: 8%; right: 8%; top: 50%;
+      height: var(--row); transform: translateY(-50%);
+      border-radius: 18px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 30px color-mix(in srgb, var(--now-accent) 22%, transparent);
+      transition: box-shadow .5s;
+      pointer-events: none;
+    }
+    .wheel {
       position: absolute; inset: 0;
-      width: 100%; height: 100%;
-      border: 0; background: var(--bg);
+      overflow-y: auto;
+      scroll-snap-type: y mandatory;
+      scrollbar-width: none;
+      perspective: 700px;
+      outline: none;
+    }
+    .wheel::-webkit-scrollbar { display: none; }
+    .item {
+      height: var(--row);
+      scroll-snap-align: center;
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; border: 0; background: none; cursor: pointer;
+      font-family: var(--disp); font-style: italic; font-weight: 600;
+      font-size: 2.3rem; letter-spacing: -0.02em;
+      color: var(--logo);
+      transform-origin: center center;
+      will-change: transform, opacity;
+    }
+    .item .dot { font-style: normal; color: var(--accent); }
+    .item:focus-visible { outline: none; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 6px; }
+
+    .caption {
+      position: relative; text-align: center; min-height: 3.2rem;
+      color: var(--muted);
+    }
+    .caption .what { font-size: 1.05rem; }
+    .caption .hint { font-size: .85rem; opacity: .75; margin-top: .2rem; }
+
+    /* ── Full-screen app ── */
+    .sheet {
+      position: fixed; inset: 0; z-index: 10;
+      background: var(--bg);
+      clip-path: circle(0 at 50% 50%);
       visibility: hidden;
+      transition: clip-path .5s cubic-bezier(.2,.8,.2,1), visibility 0s .5s;
+    }
+    body.open .sheet {
+      clip-path: circle(150vmax at 50% 50%);
+      visibility: visible;
+      transition: clip-path .5s cubic-bezier(.2,.8,.2,1), visibility 0s;
+    }
+    .loading {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      font-family: var(--disp); font-style: italic; font-weight: 600; font-size: 2.6rem;
+      color: var(--now-logo);
+    }
+    .loading .dot { font-style: normal; color: var(--now-accent); animation: blink 1s infinite; }
+    @keyframes blink { 50% { opacity: .2; } }
+    iframe {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      border: 0; background: var(--bg);
+      visibility: hidden; opacity: 0;
+      transition: opacity .25s;
     }
     iframe.on { visibility: visible; }
+    iframe.on.ready { opacity: 1; }
 
-    /* ── Tab bar (bottom on phones, top on wider screens) ── */
-    nav {
-      order: 2;
-      display: flex;
-      align-items: stretch;
-      background: var(--surface);
-      border-top: 1px solid var(--line);
-      padding-bottom: env(safe-area-inset-bottom);
-      padding-left: env(safe-area-inset-left);
-      padding-right: env(safe-area-inset-right);
-    }
-    .tabs {
-      flex: 1;
-      display: flex;
-      overflow-x: auto;
-      scrollbar-width: none;
-      -webkit-overflow-scrolling: touch;
-    }
-    .tabs::-webkit-scrollbar { display: none; }
-    .tab {
-      flex: 0 0 auto;
-      height: var(--bar);
-      padding: 0 1rem;
-      border: 0;
-      background: none;
-      cursor: pointer;
-      font-family: var(--disp);
-      font-style: italic;
-      font-weight: 600;
-      font-size: 1.05rem;
-      color: var(--muted);
-      position: relative;
-      white-space: nowrap;
-    }
-    .tab .dot { font-style: normal; color: var(--accent); }
-    .tab:hover { background: var(--hover); }
-    .tab[aria-selected="true"] { color: var(--logo); }
-    .tab[aria-selected="true"]::after {
-      content: ""; position: absolute; left: 1rem; right: 1rem; top: 0;
-      height: 3px; border-radius: 0 0 3px 3px; background: var(--accent);
-    }
-    .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
-
-    .pop {
-      flex: 0 0 auto;
-      width: var(--bar);
-      height: var(--bar);
+    /* the close button floats over the app; drag it out of the way if it covers something */
+    .close {
+      position: fixed; z-index: 11;
+      left: calc(50% - 24px); top: calc(10px + env(safe-area-inset-top));
+      width: 48px; height: 48px; border-radius: 50%;
+      border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+      background: color-mix(in srgb, var(--surface) 72%, transparent);
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      box-shadow: 0 4px 16px rgba(0,0,0,.18);
+      color: var(--text);
       display: grid; place-items: center;
-      color: var(--muted);
-      border-left: 1px solid var(--line);
-      text-decoration: none;
-      font-size: 1.1rem;
+      cursor: pointer; touch-action: none;
+      opacity: 0; transform: scale(.6); pointer-events: none;
+      transition: opacity .3s .2s, transform .3s .2s;
     }
-    .pop:hover { background: var(--hover); color: var(--text); }
-
-    @media (min-width: 760px) {
-      nav { order: 0; border-top: 0; border-bottom: 1px solid var(--line); padding-top: env(safe-area-inset-top); padding-bottom: 0; }
-      .tab[aria-selected="true"]::after { top: auto; bottom: 0; border-radius: 3px 3px 0 0; }
-    }
-    @media (max-width: 759px) {
-      main { padding-top: env(safe-area-inset-top); }
-    }
+    body.open .close { opacity: 1; transform: none; pointer-events: auto; }
+    .close svg { width: 20px; height: 20px; }
   </style>
 </head>
 <body>
-  <nav>
-    <div class="tabs" role="tablist" aria-label="Apps" id="tabs"></div>
-    <a class="pop" id="pop" target="_blank" rel="noopener" title="Open this app on its own" aria-label="Open this app on its own">↗</a>
-  </nav>
-  <main id="frames"></main>
+  <div class="home" id="home">
+    <div class="orb a"></div><div class="orb b"></div>
+    <header class="top">
+      <h1 class="title">lifeOS<span class="dot">.</span></h1>
+      <p class="greet" id="greet"></p>
+    </header>
+    <div class="wheel-wrap">
+      <div class="lens"></div>
+      <div class="wheel" id="wheel" tabindex="0" role="listbox" aria-label="Apps"></div>
+    </div>
+    <div class="caption" aria-live="polite">
+      <p class="what" id="what"></p>
+      <p class="hint">tap to open</p>
+    </div>
+  </div>
+
+  <section class="sheet" id="sheet" aria-hidden="true">
+    <div class="loading" id="loading"></div>
+  </section>
+  <button class="close" id="close" aria-label="Back to lifeOS.">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
 
   <script>
     // Each app stays where it is; this page only frames them.
     const APPS = [
-      { id: 'life',       name: 'lifeOS',     url: 'https://dannywebb014.github.io/myhub-homepage/' },
-      { id: 'food',       name: 'food',       url: 'https://food-hub-weld-five.vercel.app/' },
-      { id: 'train',      name: 'train',      url: 'https://fitnesshub-woad.vercel.app/' },
-      { id: 'breathe',    name: 'breathe',    url: 'https://dannywebb014.github.io/breathhub/' },
-      { id: 'motivation', name: 'motivation', url: 'https://dannywebb014.github.io/motivation/' },
-      { id: 'money',      name: 'money',      url: 'https://money-dannywebb014s-projects.vercel.app/' },
-      { id: 'tasks',      name: 'tasks',      url: 'https://dannywebb014.github.io/taskhub/' },
-      { id: 'cal',        name: 'calendar',   url: 'https://dannywebb014.github.io/calhub/' },
-      { id: 'places',     name: 'places',     url: 'https://dannywebb014.github.io/places/' },
+      { id: 'cal',        name: 'calendar',   what: 'what’s on',                 url: 'https://dannywebb014.github.io/calhub/' },
+      { id: 'tasks',      name: 'tasks',      what: 'what to do',                url: 'https://dannywebb014.github.io/taskhub/' },
+      { id: 'food',       name: 'food',       what: 'meals and shopping',        url: 'https://food-hub-weld-five.vercel.app/' },
+      { id: 'train',      name: 'train',      what: 'your training log',         url: 'https://fitnesshub-woad.vercel.app/' },
+      { id: 'breathe',    name: 'breathe',    what: 'slow down and breathe',     url: 'https://dannywebb014.github.io/breathhub/' },
+      { id: 'motivation', name: 'motivation', what: 'a quote to get you going',  url: 'https://dannywebb014.github.io/motivation/' },
+      { id: 'places',     name: 'places',     what: 'places to eat, visit and do', url: 'https://dannywebb014.github.io/places/' },
+      { id: 'money',      name: 'money',      what: 'the household finances',    url: 'https://money-dannywebb014s-projects.vercel.app/' },
     ];
 
-    const tabsEl = document.getElementById('tabs');
-    const framesEl = document.getElementById('frames');
-    const pop = document.getElementById('pop');
+    const root = document.documentElement.style;
+    const $ = id => document.getElementById(id);
+    const wheel = $('wheel'), sheet = $('sheet'), loading = $('loading');
     const frames = {};
+    let current = 0, openId = null;
 
-    for (const app of APPS) {
+    // ── greeting ──
+    const h = new Date().getHours();
+    $('greet').textContent = (h < 12 ? 'good morning' : h < 18 ? 'good afternoon' : 'good evening') + ' · ' +
+      new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }).toLowerCase();
+
+    // ── wheel ──
+    // The list repeats so it loops round; after each scroll it quietly jumps
+    // back to the middle copy, so you never reach an end.
+    const COPIES = 5, MID = 2, n = APPS.length;
+    let centre = 0;
+    const items = [];
+    for (let c = 0; c < COPIES; c++) APPS.forEach((app, i) => {
+      const k = items.length;
       const b = document.createElement('button');
-      b.className = 'tab';
-      b.id = 'tab-' + app.id;
-      b.setAttribute('role', 'tab');
+      b.className = 'item';
+      b.setAttribute('role', 'option');
+      if (c !== MID) b.setAttribute('aria-hidden', 'true');
+      b.tabIndex = -1;
       b.style.setProperty('--logo', `var(--${app.id}-logo)`);
       b.style.setProperty('--accent', `var(--${app.id}-accent)`);
       b.innerHTML = `${app.name}<span class="dot">.</span>`;
-      b.onclick = () => { location.hash = app.id; };
-      tabsEl.append(b);
-    }
+      b.onclick = () => k === centre ? open(app) : scrollTo(k);
+      wheel.append(b);
+      items.push(b);
+    });
 
-    // Frames load on first visit, then stay alive so switching back keeps your place.
+    function scrollTo(k, smooth = true) {
+      const b = items[k];
+      wheel.scrollTo({ top: b.offsetTop - (wheel.clientHeight - b.offsetHeight) / 2, behavior: smooth ? 'smooth' : 'auto' });
+    }
+    const toApp = i => scrollTo(MID * n + i, false);
+
+    // tilt rows away from the middle, like a drum
+    function paint() {
+      const mid = wheel.scrollTop + wheel.clientHeight / 2;
+      const row = items[0].offsetHeight;
+      const k0 = Math.round((mid - row / 2) / row);
+      centre = Math.max(0, Math.min(items.length - 1, k0));
+      for (let k = Math.max(0, k0 - 6); k <= Math.min(items.length - 1, k0 + 6); k++) {
+        const b = items[k];
+        const d = (b.offsetTop + row / 2 - mid) / row;
+        const a = Math.min(Math.abs(d), 4);
+        b.style.transform = `rotateX(${Math.max(-60, Math.min(60, -d * 14))}deg) scale(${1 - a * .06})`;
+        b.style.opacity = Math.max(.2, 1 - a * .2);
+      }
+      if (centre % n !== current || !$('what').textContent) setCurrent(centre % n);
+    }
+    function setCurrent(i) {
+      current = i;
+      const app = APPS[i];
+      root.setProperty('--now-accent', `var(--${app.id}-accent)`);
+      root.setProperty('--now-logo', `var(--${app.id}-logo)`);
+      $('what').textContent = app.what;
+      items.forEach((b, j) => b.setAttribute('aria-selected', j === MID * n + i));
+    }
+    let ticking = false, idle;
+    wheel.addEventListener('scroll', () => {
+      clearTimeout(idle);
+      idle = setTimeout(recentre, 180);
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => { ticking = false; paint(); });
+    });
+    function recentre() {
+      const copy = Math.floor(centre / n);
+      if (copy === MID) return;
+      wheel.scrollTop -= (copy - MID) * n * items[0].offsetHeight;
+      paint();
+    }
+    addEventListener('resize', () => { toApp(current); paint(); });
+    wheel.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); scrollTo(centre + 1); }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); scrollTo(centre - 1); }
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(APPS[current]); }
+    });
+
+    // ── full screen ──
+    // Frames load on first open, then stay alive so going back keeps your place.
     function frameFor(app) {
       if (frames[app.id]) return frames[app.id];
       const f = document.createElement('iframe');
       f.src = app.url;
       f.title = app.name + '.';
       f.allow = 'geolocation; microphone; camera; clipboard-read; clipboard-write; fullscreen';
-      f.addEventListener('load', () => catchAppLinks(f));
-      framesEl.append(f);
+      f.addEventListener('load', () => f.classList.add('ready'));
+      sheet.append(f);
       return frames[app.id] = f;
     }
 
-    // lifeOS. is on the same origin, so its app cards can switch tabs here
-    // instead of opening a new browser tab. lifeOS. itself is untouched.
-    function catchAppLinks(f) {
-      let doc;
-      try { doc = f.contentDocument; } catch { return; }
-      if (!doc) return;
-      doc.addEventListener('click', e => {
-        const a = e.target.closest && e.target.closest('a[href]');
-        if (!a) return;
-        const app = APPS.find(x => a.href.startsWith(x.url));
-        if (!app || app.id === 'life') return;
-        e.preventDefault();
-        location.hash = app.id;
-      }, true);
-    }
-
-    function show() {
-      const id = location.hash.slice(1);
-      const app = APPS.find(x => x.id === id) || APPS[0];
+    function open(app, push = true) {
+      if (openId === app.id) return;
+      openId = app.id;
+      setCurrent(APPS.indexOf(app));
+      loading.innerHTML = `${app.name}<span class="dot">.</span>`;
       const f = frameFor(app);
       for (const x of Object.values(frames)) x.classList.toggle('on', x === f);
-      for (const b of tabsEl.children) {
-        const on = b.id === 'tab-' + app.id;
-        b.setAttribute('aria-selected', on);
-        if (on) b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      }
-      pop.href = app.url;
-      document.title = app.id === 'life' ? 'lifeOS.' : `${app.name}. · lifeOS.`;
+      document.body.classList.add('open');
+      sheet.setAttribute('aria-hidden', 'false');
+      document.title = `${app.name}. · lifeOS.`;
+      if (push) history.pushState({ app: app.id }, '', '#' + app.id);
     }
 
-    addEventListener('hashchange', show);
-    show();
+    function close() {
+      if (!openId) return;
+      openId = null;
+      document.body.classList.remove('open');
+      sheet.setAttribute('aria-hidden', 'true');
+      document.title = 'lifeOS.';
+      setTimeout(() => {
+        if (!openId) for (const x of Object.values(frames)) x.classList.remove('on');
+      }, 500);
+      wheel.focus({ preventScroll: true });
+    }
+
+    // Back (browser button, swipe, or Escape) returns to the picker.
+    function back() { history.state?.app ? history.back() : (history.replaceState(null, '', location.pathname), close()); }
+    addEventListener('popstate', e => {
+      const app = APPS.find(x => x.id === e.state?.app);
+      app ? open(app, false) : close();
+    });
+    addEventListener('keydown', e => { if (e.key === 'Escape' && openId) back(); });
+
+    // Close button: tap to go back, or drag it anywhere that isn't in the way.
+    const btn = $('close');
+    let drag = null;
+    btn.addEventListener('pointerdown', e => {
+      const r = btn.getBoundingClientRect();
+      drag = { x: e.clientX, y: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
+      btn.setPointerCapture(e.pointerId);
+    });
+    btn.addEventListener('pointermove', e => {
+      if (!drag) return;
+      if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
+      drag.moved = true;
+      const w = btn.offsetWidth;
+      btn.style.left = Math.max(4, Math.min(innerWidth - w - 4, e.clientX - drag.dx)) + 'px';
+      btn.style.top = Math.max(4, Math.min(innerHeight - w - 4, e.clientY - drag.dy)) + 'px';
+    });
+    btn.addEventListener('pointerup', () => { if (drag && !drag.moved) back(); drag = null; });
+    btn.addEventListener('pointercancel', () => { drag = null; });
+
+    // ── start ──
+    const start = APPS.find(x => x.id === location.hash.slice(1));
+    requestAnimationFrame(() => {
+      toApp(start ? APPS.indexOf(start) : 0);
+      paint();
+      if (start) {
+        history.replaceState(null, '', location.pathname);
+        open(start);
+      } else {
+        wheel.focus({ preventScroll: true });
+      }
+    });
   </script>
 </body>
 </html>
