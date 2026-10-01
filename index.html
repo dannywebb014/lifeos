@@ -16,7 +16,7 @@
   <link rel="manifest" href="/lifeos/manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@1,500;1,600&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://dannywebb014.github.io/lifeos/fonts.css">
 
   <style>
     /* Same tokens as lifeOS. (myhub-homepage) */
@@ -38,8 +38,8 @@
       --cal-logo: #2f6aa3; --cal-accent: #3b7bbf;
 
       --glow: .28;
-      --disp: 'Lora', Georgia, serif;
-      --body: 'Source Sans 3', system-ui, -apple-system, Helvetica, Arial, sans-serif;
+      --disp: var(--hub-head, 'Lora', Georgia, serif);
+      --body: var(--hub-body, 'Source Sans 3', system-ui, -apple-system, Helvetica, Arial, sans-serif);
       --row: 76px;
       color-scheme: light;
     }
@@ -102,7 +102,7 @@
 
     .top { position: relative; text-align: center; }
     .title {
-      font-family: var(--disp); font-style: italic; font-weight: 600;
+      font-family: var(--disp); font-style: var(--hub-logo-style, italic); font-weight: 600;
       font-size: clamp(2.6rem, 10vw, 4.2rem);
       letter-spacing: -0.03em; line-height: 1.1;
       color: var(--life-logo);
@@ -144,7 +144,7 @@
       scroll-snap-align: center;
       display: flex; align-items: center; justify-content: center;
       width: 100%; border: 0; background: none; cursor: pointer;
-      font-family: var(--disp); font-style: italic; font-weight: 600;
+      font-family: var(--disp); font-style: var(--hub-logo-style, italic); font-weight: 600;
       font-size: 2.3rem; letter-spacing: -0.02em;
       color: var(--logo);
       transform-origin: center center;
@@ -169,7 +169,7 @@
     }
     .loading {
       position: absolute; inset: 0; display: grid; place-items: center;
-      font-family: var(--disp); font-style: italic; font-weight: 600; font-size: 2.6rem;
+      font-family: var(--disp); font-style: var(--hub-logo-style, italic); font-weight: 600; font-size: 2.6rem;
       color: var(--now-logo);
     }
     .loading .dot { font-style: normal; color: var(--now-accent); animation: blink 1s infinite; }

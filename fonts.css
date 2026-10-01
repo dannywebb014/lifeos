@@ -1,0 +1,11 @@
+/* The fonts every hub app uses. Each app links this file and falls back to
+   its own Lora / Source Sans 3 if it can't load, so changing the three values
+   below (and the import) changes every app at once. */
+@import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,wght@0,200..1000;1,200..1000&family=Figtree:ital,wght@0,300..900;1,300..900&display=swap');
+
+:root {
+  --hub-head: 'Nunito Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --hub-body: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Logos and section titles: italic or normal */
+  --hub-logo-style: normal;
+}
