@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Sign in · lifeOS.</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/lifeos/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/lifeos/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="lifeOS.">
+  <meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1e1a" media="(prefers-color-scheme: dark)">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://dannywebb014.github.io/lifeos/fonts.css">
+  <style>
+    /* lifeOS. tokens, with its lavender as the accent */
+    :root {
+      --bg:#f4f1ea; --surface:#fffdf8; --input:#f0ece3; --line:#e5dfd0; --line-strong:#ddd8cc;
+      --text:#2c2218; --muted:#6b6055; --dim:#a8a295;
+      --logo:#5a4fa0; --accent:#7d6fd6; --accent-strong:#5a4fa0; --on-accent:#fff; --danger:#b54e4e;
+      --shadow:0 1px 3px rgba(44,34,24,.06); --shadow-lg:0 18px 50px rgba(44,34,24,.12);
+      --glow:.28;
+      --disp:var(--hub-head, 'Lora', Georgia, serif);
+      --body:var(--hub-body, 'Source Sans 3', system-ui, -apple-system, sans-serif);
+      color-scheme:light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:#1a1e1a; --surface:#232823; --input:#2e342e; --line:#3a423a; --line-strong:#434b43;
+        --text:#ebe8de; --muted:#a8a89c; --dim:#6b7568;
+        --logo:#c9c1ff; --accent:#b4a9ff; --accent-strong:#b4a9ff; --on-accent:#1a1e1a; --danger:#c96b6b;
+        --shadow:0 1px 4px rgba(0,0,0,.35); --shadow-lg:0 18px 50px rgba(0,0,0,.45);
+        --glow:.22;
+        color-scheme:dark;
+      }
+    }
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    html, body { min-height:100%; }
+    body {
+      background:var(--bg); color:var(--text); font-family:var(--body); font-size:16px; line-height:1.45;
+      -webkit-font-smoothing:antialiased; display:flex; align-items:center; justify-content:center;
+      min-height:100dvh; padding:calc(1.5rem + env(safe-area-inset-top)) 16px calc(1.5rem + env(safe-area-inset-bottom));
+    }
+    button, input { font:inherit; color:inherit; }
+
+    .glow { position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none; }
+    .glow::before, .glow::after {
+      content:""; position:absolute; width:80vmax; height:80vmax; border-radius:50%;
+      opacity:var(--glow); animation:drift 18s ease-in-out infinite alternate;
+    }
+    .glow::before { left:-40vmax; top:-30vmax; background:radial-gradient(circle, var(--accent) 0%, transparent 62%); }
+    .glow::after { right:-45vmax; bottom:-40vmax; background:radial-gradient(circle, #6fa8e0 0%, transparent 62%); animation-duration:23s; animation-direction:alternate-reverse; }
+    @keyframes drift { to { transform:translate(12vmax, 10vmax) scale(1.15); } }
+    @media (prefers-reduced-motion: reduce) { .glow::before, .glow::after { animation:none; } }
+
+    main { position:relative; z-index:1; width:100%; max-width:380px; display:grid; gap:1.5rem; }
+    .title { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:clamp(2.6rem, 12vw, 3.4rem); letter-spacing:-.03em; line-height:1.05; color:var(--logo); text-align:center; }
+    .title .dot { font-style:normal; color:var(--accent); }
+    .card { background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow-lg); padding:22px 20px; display:grid; gap:14px; }
+    .card h1 { font-family:var(--disp); font-weight:600; font-size:1.25rem; letter-spacing:-.2px; }
+    .card p { color:var(--muted); font-size:.93rem; }
+    label { display:block; font-size:.82rem; font-weight:600; color:var(--muted); margin-bottom:6px; }
+    .field { width:100%; background:var(--input); border:1px solid var(--line-strong); border-radius:10px; padding:11px 13px; font-size:16px; outline:none; min-height:46px; }
+    .field:focus { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+    .code { font-size:1.6rem; letter-spacing:.4em; text-align:center; font-variant-numeric:tabular-nums; padding-left:.4em; }
+    .btn { width:100%; border:none; border-radius:10px; min-height:46px; font-weight:700; background:var(--accent-strong); color:var(--on-accent); cursor:pointer; }
+    .btn:disabled { opacity:.55; cursor:default; }
+    .link { border:none; background:none; color:var(--accent-strong); font-weight:600; cursor:pointer; padding:4px 0; justify-self:center; font-size:.9rem; }
+    .card .err { color:var(--danger); font-size:.9rem; min-height:1.2em; }
+    .card .err:empty { display:none; }
+    .qr { justify-self:center; background:#fff; border-radius:12px; padding:10px; width:200px; height:200px; }
+    .qr img { width:100%; height:100%; display:block; }
+    .secret { font-family:ui-monospace, Menlo, monospace; font-size:.85rem; background:var(--input); border-radius:8px; padding:8px 10px; word-break:break-all; user-select:all; text-align:center; }
+    .steps { display:grid; gap:6px; padding-left:1.1rem; color:var(--muted); font-size:.93rem; }
+    .open-app { display:block; text-align:center; font-weight:600; color:var(--accent-strong); font-size:.93rem; }
+    .who { font-size:.85rem; color:var(--muted); text-align:center; }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body>
+  <div class="glow" aria-hidden="true"></div>
+  <main>
+    <p class="title">lifeOS<span class="dot">.</span></p>
+
+    <!-- 1. Email and password -->
+    <form class="card" id="password-step" autocomplete="on" hidden>
+      <h1>Sign in</h1>
+      <div><label for="email">Email</label><input class="field" id="email" type="email" autocomplete="username" required></div>
+      <div><label for="password">Password</label><input class="field" id="password" type="password" autocomplete="current-password" required></div>
+      <p class="err" id="password-err" role="alert"></p>
+      <button class="btn" id="password-btn">Continue</button>
+    </form>
+
+    <!-- 2a. First time: set up an authenticator -->
+    <form class="card" id="enrol-step" hidden>
+      <h1>Set up two-factor sign-in</h1>
+      <p>Each sign-in will also ask for a 6-digit code from an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password or Apple Passwords).</p>
+      <ol class="steps">
+        <li>In the app, add an account and scan this code.</li>
+        <li>Then enter the 6-digit code it shows.</li>
+      </ol>
+      <div class="qr"><img id="qr" alt="QR code for your authenticator app"></div>
+      <a class="open-app" id="otp-link" href="#">On this phone? Open in your authenticator app</a>
+      <div><label>Or type this key into the app</label><div class="secret" id="secret"></div></div>
+      <div><label for="enrol-code">6-digit code</label><input class="field code" id="enrol-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
+      <p class="err" id="enrol-err" role="alert"></p>
+      <button class="btn" id="enrol-btn">Turn on two-factor</button>
+      <button type="button" class="link" data-switch-user>Use a different account</button>
+    </form>
+
+    <!-- 2b. Every other time: enter the code -->
+    <form class="card" id="code-step" hidden>
+      <h1>Enter your code</h1>
+      <p>Open your authenticator app and enter the 6-digit code for lifeOS.</p>
+      <div><label for="code">6-digit code</label><input class="field code" id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
+      <p class="err" id="code-err" role="alert"></p>
+      <button class="btn" id="code-btn">Sign in</button>
+      <button type="button" class="link" data-switch-user>Use a different account</button>
+    </form>
+
+    <p class="who" id="who" hidden></p>
+  </main>
+
+  <script type="module">
+    import { supabase, safeNext, verifiedSession } from "/lifeos/auth.js";
+
+    const $ = (id) => document.getElementById(id);
+    const next = safeNext(new URLSearchParams(location.search).get("next"));
+    const steps = ["password-step", "enrol-step", "code-step"];
+    let factorId = null;
+
+    function step(id) {
+      for (const s of steps) $(s).hidden = s !== id;
+      const field = $(id).querySelector("input");
+      if (field) setTimeout(() => field.focus(), 50);
+    }
+    const done = () => location.replace(next);
+    const message = (err) => {
+      const m = err?.message || String(err);
+      if (/invalid login credentials/i.test(m)) return "That email and password don’t match.";
+      if (/invalid totp|invalid.*code|expired/i.test(m)) return "That code didn’t work. Codes change every 30 seconds, so try the current one.";
+      if (/rate limit|too many/i.test(m)) return "Too many tries. Wait a minute, then try again.";
+      if (/fetch|network/i.test(m)) return "Couldn’t reach the server. Check your connection.";
+      return m;
+    };
+    async function busy(btn, fn) {
+      btn.disabled = true;
+      try { await fn(); } finally { btn.disabled = false; }
+    }
+
+    // After the password: set up an authenticator the first time, ask for a code after that.
+    async function afterPassword() {
+      const { data: { session } } = await supabase.auth.getSession();
+      $("who").textContent = session ? `Signed in as ${session.user.email}` : "";
+      $("who").hidden = !session;
+      const { data, error } = await supabase.auth.mfa.listFactors();
+      if (error) throw error;
+      const verified = data.totp.find(f => f.status === "verified");
+      if (verified) { factorId = verified.id; step("code-step"); return; }
+
+      // Clear out any half-finished set-up from an earlier visit, then start a fresh one.
+      for (const f of data.all.filter(f => f.factor_type === "totp" && f.status !== "verified")) {
+        await supabase.auth.mfa.unenroll({ factorId: f.id });
+      }
+      const enrol = await supabase.auth.mfa.enroll({ factorType: "totp", friendlyName: `lifeOS ${new Date().toISOString().slice(0, 16)}` });
+      if (enrol.error) throw enrol.error;
+      factorId = enrol.data.id;
+      $("qr").src = enrol.data.totp.qr_code;
+      $("secret").textContent = enrol.data.totp.secret;
+      $("otp-link").href = enrol.data.totp.uri;
+      step("enrol-step");
+    }
+
+    async function verify(codeInput, errBox) {
+      const code = codeInput.value.replace(/\D/g, "");
+      if (code.length !== 6) { errBox.textContent = "Enter the 6 digits from your authenticator app."; return; }
+      errBox.textContent = "";
+      const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code });
+      if (error) { errBox.textContent = message(error); codeInput.select(); return; }
+      done();
+    }
+
+    $("password-step").addEventListener("submit", (e) => {
+      e.preventDefault();
+      $("password-err").textContent = "";
+      busy($("password-btn"), async () => {
+        const { error } = await supabase.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
+        if (error) { $("password-err").textContent = message(error); return; }
+        try { await afterPassword(); } catch (err) { $("password-err").textContent = message(err); }
+      });
+    });
+    $("enrol-step").addEventListener("submit", (e) => { e.preventDefault(); busy($("enrol-btn"), () => verify($("enrol-code"), $("enrol-err"))); });
+    $("code-step").addEventListener("submit", (e) => { e.preventDefault(); busy($("code-btn"), () => verify($("code"), $("code-err"))); });
+    // Six digits typed or pasted: go straight on.
+    for (const [input, form] of [["code", "code-step"], ["enrol-code", "enrol-step"]]) {
+      $(input).addEventListener("input", () => { if ($(input).value.replace(/\D/g, "").length === 6) $(form).requestSubmit(); });
+    }
+    document.querySelectorAll("[data-switch-user]").forEach(b => b.addEventListener("click", async () => {
+      await supabase.auth.signOut({ scope: "local" });
+      $("who").hidden = true;
+      step("password-step");
+    }));
+
+    // Already fully signed in: carry on. Signed in with only a password: ask for the code.
+    try {
+      if (await verifiedSession()) done();
+      else {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) await afterPassword(); else step("password-step");
+      }
+    } catch (err) {
+      step("password-step");
+      $("password-err").textContent = message(err);
+    }
+  </script>
+</body>
+</html>
