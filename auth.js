@@ -11,7 +11,8 @@
 //
 // The page is hidden until the check passes, so nothing flashes before a redirect.
 
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm";
+// supabase-js 2.57.4, bundled into one file on this site (vendor/) so it loads in one request.
+import { createClient } from "./vendor/supabase-js-2.57.4.js";
 
 const SUPABASE_URL = "https://tvpmeysctvlhjyhotfyk.supabase.co";
 // The anon key is meant to be public: every table it can reach is guarded by
