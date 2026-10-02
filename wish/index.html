@@ -207,7 +207,11 @@
       }
       people = p.data; items = i.data;
       if (current !== "me" && !people.some(x => x.id === current)) current = "me";
+      // Opened from search. (#<item id>): that item's list, with it open.
+      const linked = items.find(x => x.id === location.hash.slice(1));
+      if (linked) current = linked.person_id || "me";
       render();
+      if (linked) { history.replaceState(null, "", location.pathname); openItem(linked); }
     }
 
     const inList = (it) => current === "me" ? it.person_id === null : it.person_id === current;
