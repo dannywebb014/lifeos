@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>week.</title>
+  <meta name="description" content="week. — the weekly review, written from your other apps">
+  <link rel="icon" href="/lifeos/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/lifeos/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="week.">
+  <meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1e1a" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="https://dannywebb014.github.io/lifeos/fonts.css">
+  <script type="module">
+    // One sign-in for every hub app (lifeos/auth.js): no verified session, off to /lifeos/signin/.
+    import { requireAuth } from "/lifeos/auth.js";
+    await requireAuth();
+  </script>
+  <style>
+    /* lifeOS. tokens; each app's card takes that app's colour */
+    :root {
+      --bg:#f4f1ea; --surface:#fffdf8; --input:#f0ece3; --line:#e5dfd0; --line-strong:#ddd8cc;
+      --text:#2c2218; --muted:#6b6055; --dim:#a8a295; --danger:#b54e4e; --good:#4a7c4a;
+      --logo:#5a4fa0; --accent:#7d6fd6; --on-accent:#fff;
+      --food:#4a7c4a; --train:#c45a3a; --breathe:#c08020; --money:#7a3e5a; --tasks:#2f8a84; --places:#b8436d;
+      --shadow:0 1px 3px rgba(44,34,24,.06); --glow:.24;
+      --disp:var(--hub-head, 'Lora', Georgia, serif);
+      --body:var(--hub-body, 'Source Sans 3', system-ui, -apple-system, sans-serif);
+      color-scheme:light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:#1a1e1a; --surface:#232823; --input:#2e342e; --line:#3a423a; --line-strong:#434b43;
+        --text:#ebe8de; --muted:#a8a89c; --dim:#6b7568; --danger:#c96b6b; --good:#6bba6b;
+        --logo:#c9c1ff; --accent:#b4a9ff; --on-accent:#1a1e1a;
+        --food:#8fc08f; --train:#e8a085; --breathe:#e0b870; --money:#c89dc0; --tasks:#8fd0c9; --places:#f0a8c4;
+        --shadow:0 1px 4px rgba(0,0,0,.35); --glow:.18;
+        color-scheme:dark;
+      }
+    }
+    *, *::before, *::after { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:var(--body); font-size:16px; line-height:1.45; -webkit-font-smoothing:antialiased;
+      padding:calc(20px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom)); }
+    button, input, textarea { font:inherit; color:inherit; }
+    .glow { position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none; }
+    .glow::before, .glow::after { content:""; position:absolute; width:80vmax; height:80vmax; border-radius:50%; opacity:var(--glow); animation:drift 18s ease-in-out infinite alternate; }
+    .glow::before { left:-40vmax; top:-30vmax; background:radial-gradient(circle, var(--accent) 0%, transparent 62%); }
+    .glow::after { right:-45vmax; bottom:-40vmax; background:radial-gradient(circle, var(--breathe) 0%, transparent 62%); animation-duration:23s; animation-direction:alternate-reverse; }
+    @keyframes drift { to { transform:translate(12vmax, 10vmax) scale(1.15); } }
+    @media (prefers-reduced-motion: reduce) { .glow::before, .glow::after { animation:none; } }
+
+    main { position:relative; z-index:1; max-width:860px; margin:0 auto; display:grid; gap:22px; }
+    header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .logo { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:2.2rem; letter-spacing:-.03em; line-height:1; color:var(--logo); margin:0; }
+    .logo .dot { font-style:normal; color:var(--accent); }
+    .weeknav { margin-left:auto; display:flex; align-items:center; gap:6px; }
+    .weeknav button { width:36px; height:36px; border-radius:10px; border:1px solid var(--line); background:var(--surface); color:var(--muted); cursor:pointer; font-size:18px; line-height:1; }
+    .weeknav button:disabled { opacity:.4; cursor:default; }
+    .range { font-weight:600; min-width:13ch; text-align:center; font-variant-numeric:tabular-nums; }
+    .label { font-size:.75rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:0 2px 8px; }
+
+    .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap:12px; }
+    .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:14px 16px 16px; display:grid; gap:6px; align-content:start; min-width:0; }
+    .card h2 { margin:0; font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:1.05rem; color:var(--c); }
+    .card h2 .dot { font-style:normal; }
+    .big { font-family:var(--disp); font-weight:600; font-size:2rem; line-height:1.05; font-variant-numeric:tabular-nums; }
+    .big small { font-family:var(--body); font-size:.95rem; font-weight:500; color:var(--muted); margin-left:4px; }
+    .lines { margin:0; padding:0; list-style:none; display:grid; gap:2px; color:var(--muted); font-size:.92rem; }
+    .lines b { color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
+    .up { color:var(--danger); } .down { color:var(--good); }
+    .card.muted .big { color:var(--dim); }
+    .card .err { color:var(--dim); font-size:.88rem; }
+    .loading { color:var(--dim); font-size:.9rem; }
+
+    .review { background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); padding:18px; display:grid; gap:14px; }
+    .review h2 { margin:0; font-family:var(--disp); font-weight:600; font-size:1.3rem; }
+    .q label { display:block; font-weight:600; font-size:.92rem; margin-bottom:6px; }
+    .q textarea { width:100%; min-height:76px; resize:vertical; background:var(--input); border:1px solid var(--line-strong); border-radius:10px; padding:10px 12px; line-height:1.45; outline:none; }
+    .q textarea:focus { border-color:var(--accent); }
+    .rating { display:flex; flex-wrap:wrap; gap:6px; }
+    .rating button { width:40px; height:40px; border-radius:10px; border:1px solid var(--line); background:var(--input); cursor:pointer; font-weight:700; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .rating button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+    .status { font-size:.85rem; color:var(--dim); min-height:1.2em; }
+    .status.err { color:var(--danger); }
+
+    .past { display:grid; gap:8px; }
+    .past button { text-align:left; display:grid; grid-template-columns:auto 2.4rem minmax(0,1fr); gap:12px; align-items:baseline; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:10px 14px; cursor:pointer; }
+    .past .when { font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .past .score { font-weight:700; color:var(--logo); font-variant-numeric:tabular-nums; }
+    .past .gist { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .note { background:var(--surface); border:1px dashed var(--line-strong); border-radius:12px; padding:12px 14px; font-size:.92rem; color:var(--muted); }
+    :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  </style>
+</head>
+<body>
+  <div class="glow" aria-hidden="true"></div>
+  <main>
+    <header>
+      <h1 class="logo">week<span class="dot">.</span></h1>
+      <div class="weeknav">
+        <button type="button" id="prev" aria-label="Previous week">‹</button>
+        <span class="range" id="range"></span>
+        <button type="button" id="next" aria-label="Next week">›</button>
+      </div>
+    </header>
+
+    <section>
+      <p class="label">The week in numbers</p>
+      <div class="cards" id="cards"></div>
+    </section>
+
+    <section class="review" aria-labelledby="review-title">
+      <h2 id="review-title">How was it?</h2>
+      <div class="q"><label>Overall, out of 10</label><div class="rating" id="rating"></div></div>
+      <div class="q"><label for="went_well">What went well?</label><textarea id="went_well" data-field="went_well"></textarea></div>
+      <div class="q"><label for="didnt">What didn’t?</label><textarea id="didnt" data-field="didnt"></textarea></div>
+      <div class="q"><label for="next_three">Top three for next week</label><textarea id="next_three" data-field="next_three" placeholder="1.&#10;2.&#10;3."></textarea></div>
+      <p class="status" id="status" role="status"></p>
+    </section>
+
+    <section>
+      <p class="label">Past weeks</p>
+      <div class="past" id="past"></div>
+    </section>
+  </main>
+
+  <script type="module">
+    import { supabase, requireAuth } from "/lifeos/auth.js";
+
+    const session = await requireAuth();
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
+
+    // ── Weeks run Monday to Sunday; dates are local YYYY-MM-DD ──
+    const DAY = 86400000;
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const mondayOf = (d) => { const m = new Date(d.getFullYear(), d.getMonth(), d.getDate()); m.setDate(m.getDate() - ((m.getDay() + 6) % 7)); return m; };
+    const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+    const fmt = (d, opts) => d.toLocaleDateString("en-GB", opts);
+    const thisMonday = mondayOf(new Date());
+    // On Monday and Tuesday the week to review is usually the one just gone.
+    let monday = [1, 2].includes(new Date().getDay()) ? addDays(thisMonday, -7) : thisMonday;
+    const fromHash = /^#(\d{4}-\d{2}-\d{2})$/.exec(location.hash);
+    if (fromHash) monday = mondayOf(new Date(fromHash[1] + "T12:00:00"));
+
+    const inWeek = (isoDate) => isoDate >= iso(monday) && isoDate <= iso(addDays(monday, 6));
+    const money = (n) => `£${Math.round(n).toLocaleString("en-GB")}`;
+
+    // ── The cards: each app's numbers, loaded on their own so one failing doesn't stop the rest ──
+    const SOURCES = [
+      { id: "train", title: "train", colour: "--train", load: training },
+      { id: "breathe", title: "breathe", colour: "--breathe", load: breathing },
+      { id: "food", title: "food", colour: "--food", load: food },
+      { id: "tasks", title: "tasks", colour: "--tasks", load: tasks },
+      { id: "money", title: "money", colour: "--money", load: spending },
+      { id: "places", title: "places", colour: "--places", load: places },
+    ];
+    let stats = {};
+
+    function card(src, body, muted = false) {
+      return `<article class="card${muted ? " muted" : ""}" style="--c:var(${src.colour})" data-src="${src.id}">
+        <h2>${src.title}<span class="dot">.</span></h2>${body}</article>`;
+    }
+    async function renderCards() {
+      stats = {};
+      $("cards").innerHTML = SOURCES.map(s => card(s, `<p class="loading">Loading…</p>`)).join("");
+      await Promise.all(SOURCES.map(async (src) => {
+        let html;
+        try {
+          const r = await src.load();
+          stats[src.id] = r.stat ?? null;
+          html = card(src, `<div class="big">${r.big}${r.unit ? `<small>${esc(r.unit)}</small>` : ""}</div>${r.lines?.length ? `<ul class="lines">${r.lines.map(l => `<li>${l}</li>`).join("")}</ul>` : ""}`, r.muted);
+        } catch (err) {
+          console.error(`${src.id}:`, err);
+          html = card(src, `<p class="err">Couldn’t load: ${esc(err.message)}</p>`, true);
+        }
+        const el = document.querySelector(`[data-src="${src.id}"]`);
+        if (el) el.outerHTML = html;
+      }));
+    }
+
+    // train.: sessions ticked off in that plan week, and the weigh-ins (stored on this device).
+    async function training() {
+      const key = Object.keys(localStorage).find(k => k.startsWith("train:"));
+      const data = key && read(key);
+      if (!data) return { big: "–", lines: ["Nothing on this device yet."], muted: true };
+      const start = new Date(2026, 8, 21);                       // the plan's first Monday (train. START)
+      const planWeek = Math.floor((monday - start) / (7 * DAY)) + 1;
+      const done = Object.entries(data.logs || {}).filter(([k, v]) => k.startsWith(`w${planWeek}-`) && v?.done).length;
+      const weights = Object.entries(data.weights || {}).filter(([, v]) => v !== "" && !isNaN(parseFloat(v))).sort();
+      const inside = weights.filter(([d]) => inWeek(d));
+      const before = weights.filter(([d]) => d < iso(monday));
+      const lines = [];
+      if (planWeek >= 1) lines.push(`Plan week <b>${planWeek}</b>`);
+      if (inside.length) {
+        const last = parseFloat(inside.at(-1)[1]);
+        const prev = before.length ? parseFloat(before.at(-1)[1]) : parseFloat(inside[0][1]);
+        const diff = last - prev;
+        lines.push(`Weight <b>${last.toFixed(1)} kg</b>${diff ? ` <span class="${diff > 0 ? "up" : "down"}">${diff > 0 ? "+" : "−"}${Math.abs(diff).toFixed(1)}</span>` : ""}`);
+      } else lines.push("No weigh-in this week");
+      return { big: done, unit: done === 1 ? "session" : "sessions", lines, stat: { sessions: done, weight: inside.length ? parseFloat(inside.at(-1)[1]) : null } };
+    }
+
+    // breathe.: days practised and minutes (stored on this device).
+    async function breathing() {
+      const s = read("breathhub.v1");
+      if (!s) return { big: "–", lines: ["Nothing on this device yet."], muted: true };
+      const days = Object.keys(s.days || {}).filter(inWeek).length;
+      let minutes = 0, sessions = 0;
+      for (const entry of s.log || []) {
+        const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(entry.d || "");
+        if (!m || !inWeek(`${m[3]}-${m[2]}-${m[1]}`) || /^BOLT/.test(entry.n)) continue;
+        sessions++;
+        minutes += parseInt((/— (\d+) min/.exec(entry.n) || [])[1] || "0", 10);
+      }
+      return { big: days, unit: days === 1 ? "day" : "days", lines: [`<b>${sessions}</b> session${sessions === 1 ? "" : "s"} · <b>${minutes}</b> min`], stat: { days, minutes } };
+    }
+
+    async function householdId() {
+      const key = `food.household.${session.user.id}`;
+      const cached = localStorage.getItem(key);
+      if (cached) return cached;
+      const { data, error } = await supabase.from("profiles").select("household_id").eq("id", session.user.id).maybeSingle();
+      if (error) throw error;
+      if (data?.household_id) localStorage.setItem(key, data.household_id);
+      return data?.household_id;
+    }
+
+    // food.: the meals on this week's plan, and recipes added during it.
+    async function food() {
+      const hid = await householdId();
+      if (!hid) return { big: "–", lines: ["No food. household yet."], muted: true };
+      const [plan, added] = await Promise.all([
+        supabase.from("meal_plan").select("meal, recipe_id, note").eq("household_id", hid),
+        supabase.from("recipes").select("name, created_at").eq("household_id", hid)
+          .gte("created_at", monday.toISOString()).lt("created_at", addDays(monday, 7).toISOString()),
+      ]);
+      if (plan.error) throw plan.error;
+      if (added.error) throw added.error;
+      const meals = (plan.data || []).filter(r => r.recipe_id || r.note).length;
+      const lines = [`<b>${added.data.length}</b> new recipe${added.data.length === 1 ? "" : "s"}${added.data.length ? `: ${added.data.slice(0, 2).map(r => esc(r.name)).join(", ")}${added.data.length > 2 ? "…" : ""}` : ""}`];
+      if (iso(monday) !== iso(thisMonday)) lines.push(`<span>The plan shows the current week</span>`);
+      return { big: meals, unit: "meals planned", lines, stat: { meals, newRecipes: added.data.length } };
+    }
+
+    // money.: spending against the week before, and where it went.
+    async function spending() {
+      const from = iso(addDays(monday, -7)), to = iso(addDays(monday, 6));
+      const { data, error } = await supabase.from("money_transactions")
+        .select("amount, date, money_categories(name)").eq("type", "expense").gte("date", from).lte("date", to);
+      if (error) throw error;
+      const rows = data || [];
+      const total = (list) => list.reduce((t, r) => t + Math.abs(Number(r.amount) || 0), 0);
+      const now = rows.filter(r => inWeek(r.date));
+      const before = rows.filter(r => !inWeek(r.date));
+      if (!rows.length) return { big: "–", lines: ["No spending recorded."], muted: true };
+      const spent = total(now), was = total(before);
+      const byCat = {};
+      for (const r of now) { const c = r.money_categories?.name || "Other"; byCat[c] = (byCat[c] || 0) + Math.abs(Number(r.amount) || 0); }
+      const top = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      const lines = [];
+      if (was) { const d = spent - was; lines.push(`<span class="${d > 0 ? "up" : "down"}">${d > 0 ? "+" : "−"}${money(Math.abs(d))}</span> on the week before`); }
+      if (top.length) lines.push(top.map(([c, v]) => `${esc(c)} <b>${money(v)}</b>`).join(" · "));
+      return { big: money(spent), unit: "spent", lines, stat: { spent: Math.round(spent) } };
+    }
+
+    // places.: saved and visited.
+    async function places() {
+      const [saved, visited] = await Promise.all([
+        supabase.from("places_places").select("name").gte("created_at", monday.toISOString()).lt("created_at", addDays(monday, 7).toISOString()),
+        supabase.from("places_places").select("name").gte("visited_on", iso(monday)).lte("visited_on", iso(addDays(monday, 6))),
+      ]);
+      if (saved.error) throw saved.error;
+      if (visited.error) throw visited.error;
+      const names = visited.data.slice(0, 3).map(p => esc(p.name)).join(", ");
+      return { big: visited.data.length, unit: "visited", lines: [`<b>${saved.data.length}</b> new saved${names ? ` · ${names}` : ""}`], stat: { visited: visited.data.length, saved: saved.data.length } };
+    }
+
+    // Tasks finished: Craft (the connections saved in tasks.) and Todoist.
+    async function tasks() {
+      const settings = read("tasks.settings") || {};
+      const from = monday, to = addDays(monday, 7);
+      let craftDone = 0, craftUnknown = 0, todoistDone = 0;
+      const problems = [];
+      const cleanKey = (k) => String(k || "").replace(/[\s ​-‍﻿]/g, "");
+      await Promise.all(Object.values(settings.spaces || {}).filter(s => s?.url).map(async (space) => {
+        try {
+          const m = String(space.url).match(/connect\.craft\.do\/links\/[^/?#\s]+/i);
+          const base = m ? `https://${m[0]}/api/v1` : space.url.replace(/\/+$/, "");
+          const headers = { Accept: "application/json" };
+          if (cleanKey(space.key)) headers.Authorization = `Bearer ${cleanKey(space.key)}`;
+          const res = await fetch(`${base}/tasks?scope=logbook`, { headers });
+          if (!res.ok) throw new Error(`Craft ${res.status}`);
+          for (const t of (await res.json()).items || []) {
+            const when = t.taskInfo?.completedAt || t.taskInfo?.completionDate || t.completedAt || t.taskInfo?.doneDate || t.updatedAt;
+            if (!when) { craftUnknown++; continue; }
+            const d = new Date(when);
+            if (d >= from && d < to) craftDone++;
+          }
+        } catch (err) { problems.push(err.message); }
+      }));
+      const token = cleanKey(settings.todoist?.token);
+      if (token) {
+        try {
+          const url = `https://api.todoist.com/api/v1/tasks/completed/by_completion_date?since=${encodeURIComponent(from.toISOString())}&until=${encodeURIComponent(to.toISOString())}&limit=200`;
+          const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+          if (!res.ok) throw new Error(`Todoist ${res.status}`);
+          const body = await res.json();
+          todoistDone = (body.items || body.results || []).length;
+        } catch (err) { problems.push(err.message); }
+      }
+      if (!settings.spaces && !token) return { big: "–", lines: ["Set up tasks. on this device first."], muted: true };
+      const lines = [`Craft <b>${craftDone}</b> · Todoist <b>${todoistDone}</b>`];
+      if (craftUnknown) lines.push(`${craftUnknown} finished in Craft with no date`);
+      if (problems.length) lines.push(`<span class="up">Couldn’t reach ${esc(problems.join(", "))}</span>`);
+      return { big: craftDone + todoistDone, unit: "done", lines, stat: { craft: craftDone, todoist: todoistDone } };
+    }
+
+    // ── The review: rating and three questions, saved as you go ──
+    const FIELDS = ["went_well", "didnt", "next_three"];
+    let review = {}, saveTimer = null, tableMissing = false;
+    $("rating").innerHTML = Array.from({ length: 10 }, (_, i) => `<button type="button" data-rate="${i + 1}" aria-pressed="false">${i + 1}</button>`).join("");
+
+    function paintReview() {
+      document.querySelectorAll("[data-rate]").forEach(b => b.setAttribute("aria-pressed", String(Number(b.dataset.rate) === review.rating)));
+      for (const f of FIELDS) $(f).value = review[f] || "";
+    }
+    function status(text, err = false) { $("status").textContent = text; $("status").className = `status${err ? " err" : ""}`; }
+    const missing = (error) => /relation .* does not exist|PGRST205|Could not find the table/i.test(`${error?.code} ${error?.message}`);
+
+    async function loadReview() {
+      review = {}; paintReview(); status("");
+      const { data, error } = await supabase.from("week_reviews").select("*").eq("week_start", iso(monday)).maybeSingle();
+      if (error) {
+        tableMissing = missing(error);
+        status(tableMissing ? "Saving isn’t set up yet: run lifeos/week/setup.sql in Supabase." : `Couldn’t load your answers: ${error.message}`, true);
+        return;
+      }
+      review = data || {};
+      paintReview();
+      if (data?.updated_at) status(`Saved ${new Date(data.updated_at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}`);
+    }
+    function queueSave() {
+      clearTimeout(saveTimer);
+      status("Saving…");
+      saveTimer = setTimeout(save, 800);
+    }
+    async function save() {
+      const row = { user_id: session.user.id, week_start: iso(monday), rating: review.rating ?? null, stats, updated_at: new Date().toISOString() };
+      for (const f of FIELDS) row[f] = review[f] || "";
+      const { error } = await supabase.from("week_reviews").upsert(row);
+      if (error) { status(missing(error) ? "Saving isn’t set up yet: run lifeos/week/setup.sql in Supabase." : `Not saved: ${error.message}`, true); return; }
+      status("Saved");
+      loadPast();
+    }
+    $("rating").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-rate]"); if (!b) return;
+      const n = Number(b.dataset.rate);
+      review.rating = review.rating === n ? null : n;
+      paintReview(); queueSave();
+    });
+    for (const f of FIELDS) $(f).addEventListener("input", () => { review[f] = $(f).value; queueSave(); });
+
+    async function loadPast() {
+      const { data, error } = await supabase.from("week_reviews").select("week_start, rating, went_well, next_three").order("week_start", { ascending: false }).limit(12);
+      if (error) { $("past").innerHTML = `<p class="note">${missing(error) ? "Past weeks appear here once saving is set up." : esc(error.message)}</p>`; return; }
+      if (!data.length) { $("past").innerHTML = `<p class="note">Nothing saved yet. Your first review will appear here.</p>`; return; }
+      $("past").innerHTML = data.map(r => {
+        const d = new Date(r.week_start + "T12:00:00");
+        const gist = (r.went_well || r.next_three || "").split("\n").find(Boolean) || "";
+        return `<button type="button" data-week="${r.week_start}"><span class="when">${fmt(d, { day: "numeric", month: "short" })}</span><span class="score">${r.rating ? `${r.rating}/10` : "–"}</span><span class="gist">${esc(gist)}</span></button>`;
+      }).join("");
+    }
+    $("past").addEventListener("click", (e) => { const b = e.target.closest("[data-week]"); if (b) go(new Date(b.dataset.week + "T12:00:00")); });
+
+    // ── Moving between weeks ──
+    function paintRange() {
+      const end = addDays(monday, 6);
+      $("range").textContent = `${fmt(monday, { day: "numeric", month: "short" })} – ${fmt(end, { day: "numeric", month: "short" })}`;
+      $("next").disabled = monday >= thisMonday;
+    }
+    async function go(d) {
+      if (saveTimer) { clearTimeout(saveTimer); await save(); }
+      monday = mondayOf(d);
+      history.replaceState(null, "", `#${iso(monday)}`);
+      paintRange();
+      await Promise.all([renderCards(), loadReview()]);
+    }
+    $("prev").addEventListener("click", () => go(addDays(monday, -7)));
+    $("next").addEventListener("click", () => go(addDays(monday, 7)));
+
+    paintRange();
+    await Promise.all([renderCards(), loadReview(), loadPast()]);
+  </script>
+</body>
+</html>
