@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>wish.</title>
+  <meta name="description" content="wish. — my wishlist and gift lists for other people">
+  <link rel="icon" href="/lifeos/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/lifeos/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="wish.">
+  <meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1e1a" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="https://dannywebb014.github.io/lifeos/fonts.css">
+  <script type="module">
+    // One sign-in for every hub app (lifeos/auth.js): no verified session, off to /lifeos/signin/.
+    import { requireAuth } from "/lifeos/auth.js";
+    await requireAuth();
+  </script>
+  <style>
+    /* My Hub neutrals, with wish.'s berry red as the accent */
+    :root {
+      --bg:#f4f1ea; --surface:#fffdf8; --input:#f0ece3; --hover:#f9f6ef; --line:#e5dfd0; --line-strong:#ddd8cc;
+      --text:#2c2218; --muted:#6b6055; --dim:#a8a295; --danger:#b54e4e;
+      --logo:#9a2f3c; --accent:#c4475a; --accent-soft:#c4475a14; --on-accent:#fff;
+      --green:#3f7a4a; --green-soft:#3f7a4a16; --amber:#b07a14; --amber-soft:#b07a1418; --red:#b5443c; --red-soft:#b5443c14;
+      --shadow:0 1px 3px rgba(44,34,24,.06); --shadow-lg:0 18px 50px rgba(44,34,24,.18); --glow:.24;
+      --disp:var(--hub-head, 'Lora', Georgia, serif);
+      --body:var(--hub-body, 'Source Sans 3', system-ui, -apple-system, sans-serif);
+      color-scheme:light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:#1a1e1a; --surface:#232823; --input:#2e342e; --hover:#2a302a; --line:#3a423a; --line-strong:#434b43;
+        --text:#ebe8de; --muted:#a8a89c; --dim:#6b7568; --danger:#c96b6b;
+        --logo:#f2a7b0; --accent:#e27a8a; --accent-soft:#e27a8a1c; --on-accent:#1a1e1a;
+        --green:#7cc48a; --green-soft:#7cc48a1c; --amber:#e0b870; --amber-soft:#e0b8701c; --red:#e8907f; --red-soft:#e8907f1c;
+        --shadow:0 1px 4px rgba(0,0,0,.35); --shadow-lg:0 18px 50px rgba(0,0,0,.5); --glow:.18;
+        color-scheme:dark;
+      }
+    }
+    *, *::before, *::after { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:var(--body); font-size:16px; line-height:1.45; -webkit-font-smoothing:antialiased;
+      padding:calc(20px + env(safe-area-inset-top)) 16px calc(100px + env(safe-area-inset-bottom)); }
+    button, input, textarea { font:inherit; color:inherit; }
+    button { cursor:pointer; }
+    :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    [hidden] { display:none !important; }
+    .glow { position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none; }
+    .glow::before, .glow::after { content:""; position:absolute; width:80vmax; height:80vmax; border-radius:50%; opacity:var(--glow); animation:drift 18s ease-in-out infinite alternate; }
+    .glow::before { left:-40vmax; top:-30vmax; background:radial-gradient(circle, var(--accent) 0%, transparent 62%); }
+    .glow::after { right:-45vmax; bottom:-40vmax; background:radial-gradient(circle, var(--amber) 0%, transparent 62%); animation-duration:23s; animation-direction:alternate-reverse; }
+    @keyframes drift { to { transform:translate(12vmax, 10vmax) scale(1.15); } }
+    @media (prefers-reduced-motion: reduce) { .glow::before, .glow::after { animation:none; } }
+
+    main { position:relative; z-index:1; max-width:760px; margin:0 auto; display:grid; gap:16px; }
+    .logo { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:2.2rem; letter-spacing:-.03em; line-height:1; color:var(--logo); margin:0; }
+    .logo .dot { font-style:normal; color:var(--accent); }
+
+    .tabs { display:flex; gap:6px; overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
+    .tabs::-webkit-scrollbar { display:none; }
+    .tab { flex:none; border:1px solid var(--line); background:var(--surface); color:var(--muted); border-radius:20px; padding:7px 15px; font-weight:600; font-size:.92rem; min-height:38px; }
+    .tab[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+    .tab.add { border-style:dashed; background:none; }
+
+    .summary { display:flex; flex-wrap:wrap; gap:6px 14px; align-items:center; font-size:.92rem; color:var(--muted); }
+    .summary b { color:var(--text); font-variant-numeric:tabular-nums; }
+    .person-acts { margin-left:auto; display:flex; gap:12px; }
+    .linkish { border:none; background:none; padding:2px; color:var(--muted); font-size:.88rem; font-weight:600; }
+    .linkish:hover { color:var(--text); }
+    .dot-c { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:1px; }
+
+    .list { display:grid; gap:8px; }
+    .item { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:12px; align-items:center; background:var(--surface); border:1px solid var(--line); border-left:4px solid var(--p, var(--line)); border-radius:12px; box-shadow:var(--shadow); padding:10px 12px; }
+    .thumb { width:52px; height:52px; border-radius:8px; object-fit:cover; background:var(--input); flex:none; }
+    .thumb.none { display:grid; place-items:center; color:var(--dim); font-family:var(--disp); font-size:1.2rem; }
+    .body { min-width:0; cursor:pointer; }
+    .name { font-weight:600; line-height:1.25; overflow-wrap:anywhere; }
+    .meta { font-size:.85rem; color:var(--muted); display:flex; flex-wrap:wrap; gap:2px 10px; margin-top:2px; }
+    .meta a { color:inherit; }
+    .price { font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
+    .tick { width:36px; height:36px; border-radius:50%; border:2px solid var(--line-strong); background:none; display:grid; place-items:center; color:transparent; }
+    .tick:hover { border-color:var(--accent); }
+    .done .tick { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+    .done { opacity:.7; }
+    .done .name { text-decoration:line-through; text-decoration-color:var(--dim); }
+    .section-head { display:flex; align-items:center; gap:8px; border:none; background:none; padding:6px 2px; color:var(--muted); font-weight:700; font-size:.82rem; letter-spacing:.06em; text-transform:uppercase; }
+    .empty { text-align:center; color:var(--muted); padding:28px 12px; font-family:var(--disp); font-style:italic; }
+    .note { background:var(--surface); border:1px dashed var(--line-strong); border-radius:12px; padding:12px 14px; font-size:.92rem; color:var(--muted); }
+
+    .fab { position:fixed; right:max(16px, calc(50% - 380px + 16px)); bottom:calc(20px + env(safe-area-inset-bottom)); z-index:5; width:56px; height:56px; border-radius:16px; border:none; background:var(--accent); color:var(--on-accent); box-shadow:var(--shadow-lg); display:grid; place-items:center; }
+    .fab svg { width:24px; height:24px; }
+
+    dialog { border:none; background:var(--surface); color:var(--text); border-radius:16px; box-shadow:var(--shadow-lg); width:min(520px, calc(100vw - 32px)); padding:0; }
+    dialog::backdrop { background:rgba(20,16,10,.4); backdrop-filter:blur(2px); }
+    @media (max-width:560px) { dialog { width:100vw; max-width:100vw; margin:auto 0 0; border-radius:16px 16px 0 0; max-height:92vh; } }
+    .sheet { display:grid; gap:12px; padding:18px 18px calc(18px + env(safe-area-inset-bottom)); }
+    .sheet h2 { margin:0; font-family:var(--disp); font-weight:600; font-size:1.25rem; }
+    .f label { display:block; font-size:.82rem; font-weight:600; color:var(--muted); margin-bottom:5px; }
+    .field { width:100%; background:var(--input); border:1px solid var(--line-strong); border-radius:10px; padding:10px 12px; min-height:44px; outline:none; }
+    .field:focus { border-color:var(--accent); }
+    textarea.field { min-height:64px; resize:vertical; }
+    .row { display:flex; gap:10px; align-items:end; }
+    .row > * { flex:1; min-width:0; }
+    .hint { font-size:.85rem; color:var(--muted); min-height:1.2em; }
+    .hint.err { color:var(--danger); }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; }
+    .chip { border:1px solid var(--line-strong); background:var(--input); color:var(--muted); border-radius:10px; padding:7px 12px; font-weight:600; font-size:.88rem; min-height:38px; }
+    .chip[aria-pressed="true"] { color:var(--c, var(--accent)); background:var(--cs, var(--accent-soft)); border-color:currentColor; }
+    .preview { display:flex; gap:10px; align-items:center; }
+    .preview img { width:56px; height:56px; border-radius:8px; object-fit:cover; background:var(--input); }
+    .foot { display:flex; gap:8px; align-items:center; }
+    .btn { border:1px solid var(--line-strong); background:transparent; border-radius:10px; padding:10px 16px; font-weight:600; min-height:44px; }
+    .btn.primary { margin-left:auto; background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+    .btn.danger { color:var(--danger); }
+    .btn:disabled { opacity:.55; }
+    .toast { position:fixed; left:50%; bottom:calc(92px + env(safe-area-inset-bottom)); translate:-50% 0; z-index:20; background:var(--text); color:var(--bg); padding:10px 16px; border-radius:10px; font-weight:600; font-size:.92rem; box-shadow:var(--shadow-lg); max-width:calc(100vw - 32px); }
+    .toast.err { background:var(--danger); color:#fff; }
+  </style>
+</head>
+<body>
+  <div class="glow" aria-hidden="true"></div>
+  <main>
+    <h1 class="logo">wish<span class="dot">.</span></h1>
+    <nav class="tabs" id="tabs" aria-label="Lists"></nav>
+    <div class="summary" id="summary"></div>
+    <div id="notice"></div>
+    <section class="list" id="open" aria-label="Wanted"></section>
+    <section id="done-wrap" hidden>
+      <button type="button" class="section-head" id="done-toggle" aria-expanded="false"></button>
+      <div class="list" id="done" hidden></div>
+    </section>
+  </main>
+
+  <button type="button" class="fab" id="add" aria-label="Add an item" title="Add (N)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+
+  <dialog id="item-dlg" aria-labelledby="item-title">
+    <form class="sheet" id="item-form" method="dialog">
+      <h2 id="item-title">Add</h2>
+      <div class="f"><label for="f-url">Link</label><input class="field" id="f-url" type="url" inputmode="url" placeholder="Paste a shop link to fill in the rest" autocomplete="off"></div>
+      <p class="hint" id="f-hint"></p>
+      <div class="preview" id="f-preview" hidden><img id="f-img" alt=""><span class="hint" id="f-site"></span></div>
+      <div class="f"><label for="f-name">Name</label><input class="field" id="f-name" required autocomplete="off"></div>
+      <div class="row">
+        <div class="f"><label for="f-price">Price (£)</label><input class="field" id="f-price" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
+      </div>
+      <div class="f"><label>How much do I want it?</label><div class="chips" id="f-priority"></div></div>
+      <div class="f" id="f-status-wrap"><label>Status</label><div class="chips" id="f-status"></div></div>
+      <div class="f"><label for="f-notes">Notes</label><textarea class="field" id="f-notes" placeholder="Size, colour, where else to look…"></textarea></div>
+      <div class="foot">
+        <button type="button" class="btn danger" id="f-delete">Delete</button>
+        <button type="button" class="btn" id="f-cancel">Cancel</button>
+        <button class="btn primary" id="f-save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="person-dlg" aria-labelledby="person-title">
+    <form class="sheet" id="person-form" method="dialog">
+      <h2 id="person-title">Add someone</h2>
+      <div class="f"><label for="p-name">Name</label><input class="field" id="p-name" required autocomplete="off"></div>
+      <div class="foot"><button type="button" class="btn" id="p-cancel">Cancel</button><button class="btn primary">Save</button></div>
+    </form>
+  </dialog>
+
+  <script type="module">
+    import { supabase, requireAuth } from "/lifeos/auth.js";
+    const session = await requireAuth();
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const money = (n) => n == null || n === "" ? "" : `£${Number(n).toLocaleString("en-GB", { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
+
+    // Green is the thing I most want; the labels say so wherever a colour appears.
+    const PRIORITY = [
+      { id: "green", label: "Really want", c: "var(--green)", cs: "var(--green-soft)" },
+      { id: "amber", label: "Would like", c: "var(--amber)", cs: "var(--amber-soft)" },
+      { id: "red", label: "Not fussed", c: "var(--red)", cs: "var(--red-soft)" },
+    ];
+    const RANK = { green: 0, amber: 1, red: 2 };
+    const pri = (id) => PRIORITY.find(p => p.id === id);
+    const STATUS_ME = [{ id: "open", label: "Want it" }, { id: "bought", label: "Got it" }];
+    const STATUS_GIFT = [{ id: "open", label: "Idea" }, { id: "bought", label: "Bought" }, { id: "given", label: "Given" }];
+
+    let people = [], items = [], current = "me", editing = null, doneOpen = false, draft = {};
+    try { current = localStorage.getItem("wish.tab") || "me"; } catch { /* private mode */ }
+
+    function toast(msg, err = false) {
+      const t = document.createElement("div");
+      t.className = `toast${err ? " err" : ""}`; t.textContent = msg; t.setAttribute("role", "status");
+      document.body.append(t);
+      setTimeout(() => t.remove(), err ? 6000 : 2200);
+    }
+    const missing = (error) => /relation .* does not exist|PGRST205|Could not find the table/i.test(`${error?.code} ${error?.message}`);
+
+    async function load() {
+      const [p, i] = await Promise.all([
+        supabase.from("wish_people").select("*").order("created_at"),
+        supabase.from("wish_items").select("*").order("created_at", { ascending: false }),
+      ]);
+      const error = p.error || i.error;
+      if (error) {
+        $("notice").innerHTML = `<p class="note">${missing(error) ? "wish. isn’t set up yet: run <b>lifeos/wish/setup.sql</b> in the Supabase SQL editor, then reload." : `Couldn’t load your lists: ${esc(error.message)}`}</p>`;
+        $("add").hidden = true;
+        return;
+      }
+      people = p.data; items = i.data;
+      if (current !== "me" && !people.some(x => x.id === current)) current = "me";
+      render();
+    }
+
+    const inList = (it) => current === "me" ? it.person_id === null : it.person_id === current;
+    const isMe = () => current === "me";
+
+    function render() {
+      try { localStorage.setItem("wish.tab", current); } catch { /* private mode */ }
+      $("tabs").innerHTML = [`<button type="button" class="tab" data-tab="me" aria-pressed="${isMe()}">Me</button>`,
+        ...people.map(p => `<button type="button" class="tab" data-tab="${p.id}" aria-pressed="${current === p.id}">${esc(p.name)}</button>`),
+        `<button type="button" class="tab add" id="add-person">+ Person</button>`].join("");
+
+      const mine = items.filter(inList);
+      const open = mine.filter(i => i.status === "open")
+        .sort((a, b) => (RANK[a.priority] ?? 3) - (RANK[b.priority] ?? 3) || new Date(b.created_at) - new Date(a.created_at));
+      const done = mine.filter(i => i.status !== "open").sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+
+      const sum = (list) => list.reduce((t, i) => t + (Number(i.price) || 0), 0);
+      const person = people.find(p => p.id === current);
+      if (isMe()) {
+        $("summary").innerHTML = PRIORITY.map(p => {
+          const list = open.filter(i => i.priority === p.id);
+          return list.length ? `<span><span class="dot-c" style="background:${p.c}"></span>${p.label} <b>${money(sum(list)) || "£0"}</b></span>` : "";
+        }).join("") || `<span>${open.length ? `<b>${money(sum(open))}</b> wanted` : ""}</span>`;
+      } else {
+        const bought = mine.filter(i => i.status !== "open");
+        $("summary").innerHTML = `<span><b>${open.length}</b> idea${open.length === 1 ? "" : "s"}${sum(open) ? ` · <b>${money(sum(open))}</b>` : ""}</span>`
+          + (bought.length ? `<span>Bought <b>${money(sum(bought)) || bought.length}</b></span>` : "")
+          + `<span class="person-acts"><button type="button" class="linkish" id="rename-person">Rename</button><button type="button" class="linkish" id="remove-person">Remove ${esc(person?.name || "")}</button></span>`;
+      }
+
+      $("open").innerHTML = open.length ? open.map(row).join("")
+        : `<p class="empty">${isMe() ? "Nothing on your wishlist yet. Tap + to add something." : `No ideas for ${esc(person?.name)} yet. Tap + to add one.`}</p>`;
+      $("done-wrap").hidden = !done.length;
+      $("done-toggle").textContent = `${doneOpen ? "▾" : "▸"} ${isMe() ? "Got it" : "Bought & given"} · ${done.length}`;
+      $("done-toggle").setAttribute("aria-expanded", String(doneOpen));
+      $("done").hidden = !doneOpen;
+      $("done").innerHTML = done.map(row).join("");
+    }
+
+    function row(it) {
+      const p = pri(it.priority);
+      const status = isMe() ? "" : it.status === "given" ? "Given" : it.status === "bought" ? "Bought" : "";
+      let host = "";
+      try { host = it.url ? new URL(it.url).hostname.replace(/^www\./, "") : ""; } catch { /* not a URL */ }
+      return `<article class="item${it.status !== "open" ? " done" : ""}" style="--p:${p ? p.c : "var(--line)"}" data-id="${it.id}">
+        ${it.image_url ? `<img class="thumb" src="${esc(it.image_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">`
+          : `<div class="thumb none">${esc((it.name || "?")[0])}</div>`}
+        <div class="body" data-edit="${it.id}">
+          <div class="name">${esc(it.name)}</div>
+          <div class="meta">${it.price != null ? `<span class="price">${money(it.price)}</span>` : ""}${p ? `<span style="color:${p.c};font-weight:600">${p.label}</span>` : ""}${status ? `<span>${status}</span>` : ""}${host ? `<a href="${esc(it.url)}" target="_blank" rel="noopener" data-link>${esc(host)} ↗</a>` : ""}</div>
+          ${it.notes ? `<div class="meta">${esc(it.notes.split("\n")[0])}</div>` : ""}
+        </div>
+        <button type="button" class="tick" data-tick="${it.id}" aria-label="${it.status === "open" ? (isMe() ? "Mark as got" : "Mark as bought") : "Move back to the list"}">✓</button>
+      </article>`;
+    }
+
+    // ── Tabs and people ──
+    $("tabs").addEventListener("click", (e) => {
+      if (e.target.closest("#add-person")) return openPerson(null);
+      const b = e.target.closest("[data-tab]"); if (!b) return;
+      current = b.dataset.tab; doneOpen = false; render();
+    });
+    $("summary").addEventListener("click", async (e) => {
+      const person = people.find(p => p.id === current);
+      if (e.target.closest("#rename-person")) openPerson(person);
+      if (e.target.closest("#remove-person")) {
+        const n = items.filter(i => i.person_id === person.id).length;
+        if (!confirm(`Remove ${person.name}${n ? ` and their ${n} item${n === 1 ? "" : "s"}` : ""}?`)) return;
+        const { error } = await supabase.from("wish_people").delete().eq("id", person.id);
+        if (error) return toast(`Not removed: ${error.message}`, true);
+        people = people.filter(p => p.id !== person.id); items = items.filter(i => i.person_id !== person.id);
+        current = "me"; render(); toast(`Removed ${person.name}`);
+      }
+    });
+    let personEditing = null;
+    function openPerson(person) {
+      personEditing = person;
+      $("person-title").textContent = person ? `Rename ${person.name}` : "Add someone";
+      $("p-name").value = person?.name || "";
+      $("person-dlg").showModal(); setTimeout(() => $("p-name").focus(), 50);
+    }
+    $("p-cancel").addEventListener("click", () => $("person-dlg").close());
+    $("person-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = $("p-name").value.trim(); if (!name) return;
+      if (personEditing) {
+        const { error } = await supabase.from("wish_people").update({ name }).eq("id", personEditing.id);
+        if (error) return toast(`Not saved: ${error.message}`, true);
+        personEditing.name = name;
+      } else {
+        const { data, error } = await supabase.from("wish_people").insert({ user_id: session.user.id, name }).select().single();
+        if (error) return toast(`Not added: ${error.message}`, true);
+        people.push(data); current = data.id;
+      }
+      $("person-dlg").close(); render();
+    });
+
+    // ── Ticking off ──
+    $("open").addEventListener("click", onListClick);
+    $("done").addEventListener("click", onListClick);
+    $("done-toggle").addEventListener("click", () => { doneOpen = !doneOpen; render(); });
+    async function onListClick(e) {
+      if (e.target.closest("[data-link]")) return;
+      const t = e.target.closest("[data-tick]");
+      if (t) {
+        const it = items.find(i => i.id === t.dataset.tick);
+        const before = it.status;
+        it.status = before === "open" ? "bought" : "open";
+        it.updated_at = new Date().toISOString();
+        render();
+        const { error } = await supabase.from("wish_items").update({ status: it.status, updated_at: it.updated_at }).eq("id", it.id);
+        if (error) { it.status = before; render(); toast(`Not saved: ${error.message}`, true); }
+        return;
+      }
+      const b = e.target.closest("[data-edit]");
+      if (b) openItem(items.find(i => i.id === b.dataset.edit));
+    }
+
+    // ── Adding and editing ──
+    function chips(box, list, value, onPick, coloured) {
+      box.innerHTML = list.map(o => `<button type="button" class="chip" data-v="${o.id}" aria-pressed="${o.id === value}"${coloured ? ` style="--c:${o.c};--cs:${o.cs}"` : ""}>${coloured ? `<span class="dot-c" style="background:${o.c}"></span>` : ""}${o.label}</button>`).join("");
+      box.onclick = (e) => { const b = e.target.closest("[data-v]"); if (!b) return; onPick(b.dataset.v === value ? null : b.dataset.v); };
+    }
+    function paintDraft() {
+      chips($("f-priority"), PRIORITY, draft.priority, (v) => { draft.priority = v; paintDraft(); }, true);
+      chips($("f-status"), isMe() ? STATUS_ME : STATUS_GIFT, draft.status, (v) => { draft.status = v || "open"; paintDraft(); });
+      $("f-preview").hidden = !draft.image_url && !draft.site;
+      if (draft.image_url) $("f-img").src = draft.image_url; else $("f-img").removeAttribute("src");
+      $("f-img").hidden = !draft.image_url;
+      $("f-site").textContent = draft.site || "";
+    }
+    function openItem(it) {
+      editing = it;
+      draft = { priority: it?.priority ?? null, status: it?.status ?? "open", image_url: it?.image_url || "", site: "" };
+      $("item-title").textContent = it ? "Edit" : isMe() ? "Add to my wishlist" : `Add an idea for ${people.find(p => p.id === current)?.name}`;
+      $("f-url").value = it?.url || ""; $("f-name").value = it?.name || "";
+      $("f-price").value = it?.price ?? ""; $("f-notes").value = it?.notes || "";
+      $("f-hint").textContent = ""; $("f-hint").className = "hint";
+      $("f-delete").hidden = !it;
+      paintDraft();
+      $("item-dlg").showModal();
+      if (!it) setTimeout(() => $("f-url").focus(), 50);
+    }
+    $("add").addEventListener("click", () => openItem(null));
+    $("f-cancel").addEventListener("click", () => $("item-dlg").close());
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "n" && !e.target.closest("input, textarea, dialog[open]") && !$("add").hidden) { e.preventDefault(); openItem(null); }
+    });
+
+    // Paste a link: the shop's name, price and picture, read by the link-preview function.
+    let lastFetched = "";
+    async function fetchLink() {
+      const url = $("f-url").value.trim();
+      if (!/^https?:\/\//i.test(url) || url === lastFetched) return;
+      lastFetched = url;
+      $("f-hint").className = "hint"; $("f-hint").textContent = "Reading the link…";
+      try {
+        const { data: s } = await supabase.auth.getSession();
+        const res = await fetch("https://tvpmeysctvlhjyhotfyk.supabase.co/functions/v1/link-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.session?.access_token}`, apikey: supabase.supabaseKey },
+          body: JSON.stringify({ url }),
+        });
+        const r = await res.json().catch(() => ({}));
+        if (!r.success) throw new Error(r.error || r.message || `link reader answered ${res.status}`);
+        // Generic page titles from shops that block readers aren't worth filling in.
+        const generic = !r.name || /^(access denied|just a moment|attention required|robot check|amazon\.[a-z.]+)$/i.test(r.name);
+        if (!generic && !$("f-name").value.trim()) $("f-name").value = r.name;
+        if (r.price != null && !$("f-price").value.trim()) $("f-price").value = Number(r.price).toFixed(2).replace(/\.00$/, "");
+        if (r.image) draft.image_url = r.image;
+        draft.site = r.site || "";
+        paintDraft();
+        const got = [!generic && "name", r.price != null && "price", r.image && "picture"].filter(Boolean);
+        $("f-hint").textContent = got.length ? `Filled in the ${got.join(", ").replace(/, ([^,]*)$/, " and $1")} from ${r.site || "the page"}.` : `${r.site || "That shop"} didn’t share its details. Fill them in below.`;
+        if (r.currency && r.currency !== "GBP" && r.price != null) $("f-hint").textContent += ` (Price is in ${r.currency}.)`;
+      } catch (err) {
+        $("f-hint").className = "hint err";
+        $("f-hint").textContent = `Couldn’t read that link: ${err.message}. Fill in the details below.`;
+      }
+    }
+    $("f-url").addEventListener("paste", () => setTimeout(fetchLink, 0));
+    $("f-url").addEventListener("change", fetchLink);
+    $("f-url").addEventListener("blur", fetchLink);
+
+    $("item-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = $("f-name").value.trim();
+      if (!name) { $("f-name").focus(); return; }
+      const priceRaw = $("f-price").value.replace(/[£,\s]/g, "");
+      const price = priceRaw === "" ? null : Number(priceRaw);
+      if (price !== null && !Number.isFinite(price)) { toast("The price needs to be a number, like 24.99", true); $("f-price").focus(); return; }
+      const row = {
+        name, url: $("f-url").value.trim(), price, priority: draft.priority, status: draft.status || "open",
+        notes: $("f-notes").value.trim(), image_url: draft.image_url || "", updated_at: new Date().toISOString(),
+      };
+      $("f-save").disabled = true;
+      try {
+        if (editing) {
+          const { error } = await supabase.from("wish_items").update(row).eq("id", editing.id);
+          if (error) return toast(`Not saved: ${error.message}`, true);
+          Object.assign(editing, row);
+        } else {
+          const { data, error } = await supabase.from("wish_items")
+            .insert({ ...row, user_id: session.user.id, person_id: isMe() ? null : current }).select().single();
+          if (error) return toast(`Not added: ${error.message}`, true);
+          items.unshift(data);
+        }
+        lastFetched = "";
+        $("item-dlg").close(); render(); toast(editing ? "Saved" : "Added");
+      } finally { $("f-save").disabled = false; }
+    });
+    $("f-delete").addEventListener("click", async () => {
+      if (!editing || !confirm(`Delete “${editing.name}”?`)) return;
+      const { error } = await supabase.from("wish_items").delete().eq("id", editing.id);
+      if (error) return toast(`Not deleted: ${error.message}`, true);
+      items = items.filter(i => i.id !== editing.id);
+      $("item-dlg").close(); render(); toast("Deleted");
+    });
+    $("item-dlg").addEventListener("close", () => { lastFetched = ""; });
+
+    load();
+  </script>
+</body>
+</html>
