@@ -74,7 +74,8 @@ export function signInUrl(next = location.href) {
 // and if Supabase still can't be reached, trust the two-factor session saved on
 // this device. Only Supabase saying the session is gone means signing in again.
 export async function verifiedSession() {
-  for (let attempt = 0; attempt < 4; attempt++) {
+  // No signal at all: skip the retries and go straight to the saved session.
+  for (let attempt = 0; attempt < 4 && navigator.onLine !== false; attempt++) {
     const { data, error } = await supabase.auth.getSession();
     const session = data?.session;
     if (session) {
