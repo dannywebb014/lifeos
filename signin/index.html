@@ -76,6 +76,7 @@
     .steps { display:grid; gap:6px; padding-left:1.1rem; color:var(--muted); font-size:.93rem; }
     .open-app { display:block; text-align:center; font-weight:600; color:var(--accent-strong); font-size:.93rem; }
     .who { font-size:.85rem; color:var(--muted); text-align:center; }
+    .why { font-size:.78rem; color:var(--dim); text-align:center; }
     [hidden] { display:none !important; }
   </style>
 </head>
@@ -121,10 +122,11 @@
     </form>
 
     <p class="who" id="who" hidden></p>
+    <p class="why" id="why" hidden></p>
   </main>
 
   <script type="module">
-    import { supabase, safeNext, verifiedSession } from "/lifeos/auth.js";
+    import { supabase, safeNext, verifiedSession, REASON_KEY } from "/lifeos/auth.js";
 
     const $ = (id) => document.getElementById(id);
     const next = safeNext(new URLSearchParams(location.search).get("next"));
@@ -136,7 +138,20 @@
       const field = $(id).querySelector("input");
       if (field) setTimeout(() => field.focus(), 50);
     }
-    const done = () => location.replace(next);
+    const done = () => {
+      try { localStorage.removeItem(REASON_KEY); } catch { /* private mode */ }
+      location.replace(next);
+    };
+
+    // Why this page was shown, in small print, so a surprise sign-out can be traced.
+    try {
+      const why = JSON.parse(localStorage.getItem(REASON_KEY) || "null");
+      if (why && Date.now() - why.at < 7 * 86400000) {
+        const when = new Date(why.at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+        $("why").textContent = `Signed out: ${why.reason} · ${when}${why.from ? ` · ${why.from}` : ""}`;
+        $("why").hidden = false;
+      }
+    } catch { /* nothing recorded */ }
     const message = (err) => {
       const m = err?.message || String(err);
       if (/invalid login credentials/i.test(m)) return "That email and password don’t match.";
