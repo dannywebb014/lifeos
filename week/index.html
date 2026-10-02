@@ -181,11 +181,22 @@
       }));
     }
 
-    // train.: sessions ticked off in that plan week, and the weigh-ins (stored on this device).
+    // train. and breathe. keep everything in one app_state row each; until a device
+    // has synced, fall back to what's stored on this one.
+    let appStates = null;
+    async function appState(app) {
+      appStates ||= supabase.from("app_state").select("app, data").then(({ data, error }) => {
+        if (error) { console.warn("app_state:", error.message); return {}; }
+        return Object.fromEntries(data.map(r => [r.app, r.data]));
+      });
+      return (await appStates)[app] || null;
+    }
+
+    // train.: sessions ticked off in that plan week, and the weigh-ins.
     async function training() {
       const key = Object.keys(localStorage).find(k => k.startsWith("train:"));
-      const data = key && read(key);
-      if (!data) return { big: "–", lines: ["Nothing on this device yet."], muted: true };
+      const data = (await appState("train")) || (key && read(key));
+      if (!data) return { big: "–", lines: ["No training saved yet."], muted: true };
       const start = new Date(2026, 8, 21);                       // the plan's first Monday (train. START)
       const planWeek = Math.floor((monday - start) / (7 * DAY)) + 1;
       const done = Object.entries(data.logs || {}).filter(([k, v]) => k.startsWith(`w${planWeek}-`) && v?.done).length;
@@ -203,10 +214,10 @@
       return { big: done, unit: done === 1 ? "session" : "sessions", lines, stat: { sessions: done, weight: inside.length ? parseFloat(inside.at(-1)[1]) : null } };
     }
 
-    // breathe.: days practised and minutes (stored on this device).
+    // breathe.: days practised and minutes.
     async function breathing() {
-      const s = read("breathhub.v1");
-      if (!s) return { big: "–", lines: ["Nothing on this device yet."], muted: true };
+      const s = (await appState("breathe")) || read("breathhub.v1");
+      if (!s) return { big: "–", lines: ["No practice saved yet."], muted: true };
       const days = Object.keys(s.days || {}).filter(inWeek).length;
       let minutes = 0, sessions = 0;
       for (const entry of s.log || []) {
