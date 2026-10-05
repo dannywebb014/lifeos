@@ -3,6 +3,10 @@
 //   import { mountSpotlight } from "/lifeos/spotlight.js";
 //   mountSpotlight();
 //
+// Options: `go(href)` opens a result itself and returns true (the lifeOS
+// picker opens it in that app's tab), else the page goes there. `enabled()`
+// says whether the keys may open it (not while the picker shows an app).
+//
 // Adds a small magnifying glass (top right) and opens a search box over the page
 // from it, or with S, / or ⌘K / Ctrl+K. Everything it searches loads the first
 // time it opens; after that each letter filters instantly. Enter or a tap opens
@@ -133,7 +137,7 @@ const CSS = `
     --food:#9fc89f; --places:#f0a8c4; --motivation:#9fc0e0; --media:#ecd27a; --tasks:#8fd0c9; --wish:#f2a7b0; --week:#b4a9ff; } }
 `;
 
-export function mountSpotlight({ button = true } = {}) {
+export function mountSpotlight({ button = true, go = () => false, enabled = () => true } = {}) {
   const style = document.createElement("style");
   style.textContent = CSS;
   document.head.append(style);
@@ -243,15 +247,26 @@ export function mountSpotlight({ button = true } = {}) {
   q.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") { e.preventDefault(); select(sel + 1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); select(sel - 1); }
-    else if (e.key === "Enter") { e.preventDefault(); const h = flat[sel]; if (h) location.href = h.href; }
+    else if (e.key === "Enter") { e.preventDefault(); const h = flat[sel]; if (h) follow(h.href); }
     else if (e.key === "Escape") { e.preventDefault(); if (q.value) { q.value = ""; run(); } else close(); }
   });
-  out.addEventListener("click", (e) => { const b = e.target.closest("[data-more]"); if (b) { expanded.add(b.dataset.more); run(); q.focus(); } });
+  function follow(href) {
+    if (go(href)) close();
+    else location.href = href;
+  }
+  out.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-more]");
+    if (b) { expanded.add(b.dataset.more); run(); q.focus(); return; }
+    const hit = e.target.closest(".sl-hit");
+    // A plain tap only: a modified click still opens a new tab as links do.
+    if (hit && !e.metaKey && !e.ctrlKey && !e.shiftKey && go(hit.getAttribute("href"))) { e.preventDefault(); close(); }
+  });
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
 
   // S, / or ⌘K / Ctrl+K from anywhere that isn't a text box or an open dialog.
   document.addEventListener("keydown", (e) => {
     const typing = e.target.closest?.("input, textarea, select, [contenteditable], dialog[open]");
+    if (back.hidden && !enabled()) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); back.hidden ? open() : close(); return; }
     if (typing || e.metaKey || e.ctrlKey || e.altKey || !back.hidden) return;
     if (e.key === "s" || e.key === "S" || e.key === "/") { e.preventDefault(); open(); }

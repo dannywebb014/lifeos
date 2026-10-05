@@ -217,6 +217,8 @@
       touch-action: none; display: none;
     }
     body.open .edge { display: block; }
+    /* search is for the picker; an open app keeps its own top-right corner */
+    body.open .sl-btn { display: none; }
     .sheet.swiping { transition: none; }
     .close svg { width: 12px; height: 12px; }
   </style>
@@ -241,6 +243,15 @@
   <button class="close" id="close" aria-label="Back to lifeOS.">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
   </button>
+
+  <script type="module">
+    // Search across every app (S, / or ⌘K), with results opening in their tab.
+    import { mountSpotlight } from "/lifeos/spotlight.js";
+    mountSpotlight({
+      go: (href) => window.lifeosOpenUrl?.(href) || false,
+      enabled: () => !document.body.classList.contains('open'),
+    });
+  </script>
 
   <script>
     // Each app stays where it is; this page only frames them.
@@ -341,10 +352,10 @@
 
     // ── full screen ──
     // Frames load on first open, then stay alive so going back keeps your place.
-    function frameFor(app, hash = '') {
+    function frameFor(app, hash = '', url = '') {
       if (frames[app.id]) return frames[app.id];
       const f = document.createElement('iframe');
-      f.src = app.url + hash;
+      f.src = url || app.url + hash;
       f.title = app.name + '.';
       f.allow = 'geolocation; microphone; camera; clipboard-read; clipboard-write; fullscreen';
       f.addEventListener('load', () => f.classList.add('ready'));
@@ -387,6 +398,20 @@
       app ? open(app, false) : close();
     });
     addEventListener('keydown', e => { if (e.key === 'Escape' && openId) back(); });
+
+    // A search result opens in its app's tab, at that item: the app whose
+    // address it starts with (the longest, so wish. wins over lifeOS itself).
+    // An app already open in the background is sent there, unless the
+    // result is just the app.
+    window.lifeosOpenUrl = (url) => {
+      const app = APPS.filter(a => url.startsWith(a.url)).sort((a, b) => b.url.length - a.url.length)[0];
+      if (!app) return false;
+      const f = frames[app.id];
+      if (!f) frameFor(app, '', url);
+      else if (url !== app.url) f.src = url;
+      if (openId !== app.id) open(app);
+      return true;
+    };
 
     // An app can hand over to another, as calendar. and tasks. link to each
     // other. Swapping from one app to the next replaces the history entry, so
