@@ -70,7 +70,7 @@ export async function loadTasks(projects) {
       // Kept whole so a recurring task can be moved without losing its rule.
       due: t.due || null,
       spaceId: "todoist",
-      where: { key: `p:${t.project_id}`, label: names.get(String(t.project_id)) || "Todoist", rank: 2 },
+      where: { key: `p:${t.project_id}`, label: names.get(String(t.project_id)) || "Todoist", rank: 2, projectId: String(t.project_id) },
     }));
 }
 
@@ -98,6 +98,21 @@ export async function rescheduleTask(task, date) {
   const status = result?.sync_status?.[uuid];
   if (status !== "ok") throw new Error(status?.error || "Todoist didn’t accept the new date.");
   task.due = next;
+}
+
+// Moving to another project goes through /sync, where item_move is a
+// long-standing command; the task keeps its date, repeat and everything else.
+export async function moveTask(id, projectId) {
+  const uuid = crypto.randomUUID();
+  const result = await call("/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      commands: JSON.stringify([{ type: "item_move", uuid, args: { id, project_id: projectId } }]),
+    }),
+  });
+  const status = result?.sync_status?.[uuid];
+  if (status !== "ok") throw new Error(status?.error || "Todoist didn’t move it.");
 }
 
 export const renameTask = (id, text) =>
