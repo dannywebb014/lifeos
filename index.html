@@ -256,6 +256,8 @@
   <script type="module">
     // Search across every app (S, / or ⌘K), with results opening in their tab.
     import { mountSpotlight } from "/lifeos/spotlight.js?v=2";
+    // Quick add to food.'s shopping list (A), from beside search.
+    import { mountShopAdd } from "/lifeos/shopadd.js?v=1";
     import { signOut } from "/lifeos/auth.js";
 
     // Signs this device out of every hub app (they share one sign-in), not
@@ -267,6 +269,7 @@
       go: (href) => window.lifeosOpenUrl?.(href) || false,
       enabled: () => !document.body.classList.contains('open'),
     });
+    mountShopAdd({ enabled: () => !document.body.classList.contains('open') });
   </script>
 
   <script>
