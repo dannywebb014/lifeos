@@ -94,6 +94,14 @@
     }
     body.open .home { transform: scale(.94); filter: blur(6px); }
 
+    /* signs this device out of every hub app; quiet, at the foot of the page */
+    .sign-out {
+      position: relative; margin-top: .75rem; padding: .4rem .9rem;
+      border: 0; background: none; border-radius: 999px;
+      color: var(--muted); font: inherit; font-size: .9rem; opacity: .75; cursor: pointer;
+    }
+    .sign-out:hover, .sign-out:focus-visible { opacity: 1; background: color-mix(in srgb, var(--text) 8%, transparent); outline: none; }
+
     /* two soft orbs that drift and take the colour of the app in the middle */
     .orb {
       position: absolute; border-radius: 50%;
@@ -234,6 +242,7 @@
       <div class="lens"></div>
       <div class="wheel" id="wheel" tabindex="0" role="listbox" aria-label="Apps"></div>
     </div>
+    <button class="sign-out" id="sign-out" type="button">sign out</button>
   </div>
 
   <section class="sheet" id="sheet" aria-hidden="true">
@@ -246,7 +255,14 @@
 
   <script type="module">
     // Search across every app (S, / or ⌘K), with results opening in their tab.
-    import { mountSpotlight } from "/lifeos/spotlight.js";
+    import { mountSpotlight } from "/lifeos/spotlight.js?v=2";
+    import { signOut } from "/lifeos/auth.js";
+
+    // Signs this device out of every hub app (they share one sign-in), not
+    // your other devices.
+    document.getElementById('sign-out').onclick = () => {
+      if (confirm('Sign out of lifeOS on this device?')) signOut();
+    };
     mountSpotlight({
       go: (href) => window.lifeosOpenUrl?.(href) || false,
       enabled: () => !document.body.classList.contains('open'),
