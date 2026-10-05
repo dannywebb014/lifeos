@@ -378,7 +378,7 @@
         const r = await res.json().catch(() => ({}));
         if (!r.success) throw new Error(r.error || r.message || `link reader answered ${res.status}`);
         // Generic page titles from shops that block readers aren't worth filling in.
-        const generic = !r.name || /^(access denied|just a moment|attention required|robot check|amazon\.[a-z.]+)$/i.test(r.name);
+        const generic = !r.name || /^(access denied|just a moment|attention required|robot check|something went wrong|amazon\.[a-z.]+)(\b|$)/i.test(r.name);
         if (!generic && !$("f-name").value.trim()) $("f-name").value = r.name;
         if (r.price != null && !$("f-price").value.trim()) $("f-price").value = Number(r.price).toFixed(2).replace(/\.00$/, "");
         if (r.image) draft.image_url = r.image;

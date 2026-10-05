@@ -39,6 +39,12 @@ function publicUrl(raw: string): URL | null {
   } catch { return null; }
 }
 
+// Page titles a blocked request gets instead of the product.
+const BLOCKED = /^(access denied|just a moment|attention required|robot check|something went wrong|page not found|403|404|amazon\.[a-z.]+)\b/i;
+const score = (r: ReturnType<typeof read> | null) =>
+  !r ? 0 : (r.name && !BLOCKED.test(r.name) ? 2 : 0) + (r.price != null ? 1 : 0) + (r.image ? 1 : 0);
+const useful = (r: ReturnType<typeof read> | null) => score(r) >= 3;
+
 Deno.serve(async (req) => {
   const cors = corsHeaders(req);
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -55,6 +61,12 @@ Deno.serve(async (req) => {
   try { url = publicUrl(String((await req.json())?.url ?? "")); } catch { /* bad body */ }
   if (!url) return json({ success: false, error: "That doesn't look like a web link." }, 400, cors);
 
+  // The shop itself first. Many shops turn away requests from data centres
+  // (429, 403, 503, or a robot-check page), so when that gives nothing
+  // useful the page is fetched again through Jina's free reader, which
+  // returns the same HTML from its own servers.
+  let direct: ReturnType<typeof read> | null = null;
+  let why = "";
   try {
     const res = await fetch(url, {
       headers: {
@@ -65,11 +77,25 @@ Deno.serve(async (req) => {
       redirect: "follow",
       signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) return json({ success: false, error: `The shop answered ${res.status}. Fill in the details by hand.` }, 200, cors);
-    const final = publicUrl(res.url) ?? url;
-    const html = (await res.text()).slice(0, 2_000_000);
-    return json({ success: true, ...read(html, final) }, 200, cors);
+    if (res.ok) direct = read((await res.text()).slice(0, 2_000_000), publicUrl(res.url) ?? url);
+    else why = `the shop answered ${res.status}`;
   } catch (err) {
-    return json({ success: false, error: `Couldn't read that page (${(err as Error).message}). Fill in the details by hand.` }, 200, cors);
+    why = `couldn't reach the shop (${(err as Error).message})`;
   }
+  if (useful(direct)) return json({ success: true, ...direct }, 200, cors);
+
+  try {
+    const res = await fetch(`https://r.jina.ai/${url.href}`, {
+      headers: { "X-Return-Format": "html", "Accept": "text/html" },
+      signal: AbortSignal.timeout(25000),
+    });
+    if (res.ok) {
+      const via = read((await res.text()).slice(0, 3_000_000), url);
+      if (score(via) > score(direct)) return json({ success: true, ...via }, 200, cors);
+    } else if (!why) why = `the reader answered ${res.status}`;
+  } catch (err) {
+    if (!why) why = `the reader failed (${(err as Error).message})`;
+  }
+  if (direct) return json({ success: true, ...direct }, 200, cors);
+  return json({ success: false, error: why || "the shop didn't send the page" }, 200, cors);
 });
