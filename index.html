@@ -388,6 +388,18 @@
     });
     addEventListener('keydown', e => { if (e.key === 'Escape' && openId) back(); });
 
+    // An app can hand over to another, as calendar. and tasks. link to each
+    // other. Swapping from one app to the next replaces the history entry, so
+    // Back still returns to the picker.
+    window.lifeosOpen = (id) => {
+      const app = APPS.find(x => x.id === id);
+      if (!app) return false;
+      const swap = Boolean(openId);
+      open(app, !swap);
+      if (swap) history.replaceState({ app: app.id }, '', '#' + app.id);
+      return true;
+    };
+
     $('close').onclick = back;
 
     // Swipe right from the left edge: the app follows your finger, and
@@ -428,11 +440,14 @@
     edge.addEventListener('pointercancel', endSwipe);
 
     // ── start ──
-    // calendar. signs in to Google through this whole page, since Google won't
-    // show sign-in inside a frame. Google comes back here with the reply in
-    // the hash, which is handed to the calendar. frame to finish signing in.
+    // calendar. and tasks. sign in to Google through this whole page, since
+    // Google won't show sign-in inside a frame. Google comes back here with
+    // the reply in the hash, which is handed to the app that asked to finish
+    // signing in. tasks. marks its requests with a "tasks:" state; anything
+    // else is calendar.'s.
     const googleReply = /(?:^#|&)(?:access_token|error)=/.test(location.hash) ? location.hash : '';
-    const start = googleReply ? APPS.find(x => x.id === 'cal') : APPS.find(x => x.id === location.hash.slice(1));
+    const replyFor = /^tasks:/.test(new URLSearchParams(googleReply.slice(1)).get('state') || '') ? 'tasks' : 'cal';
+    const start = googleReply ? APPS.find(x => x.id === replyFor) : APPS.find(x => x.id === location.hash.slice(1));
     requestAnimationFrame(() => {
       toApp(start ? APPS.indexOf(start) : 0);
       paint();
