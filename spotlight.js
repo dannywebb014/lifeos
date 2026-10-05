@@ -79,10 +79,16 @@ async function tasks() {
     const headers = { Accept: "application/json" };
     if (key(s.key)) headers.Authorization = `Bearer ${key(s.key)}`;
     const seen = new Set();
-    for (const scope of ["active", "upcoming", "inbox"]) {
-      const res = await fetch(`${base}/tasks?scope=${scope}`, { headers });
-      if (!res.ok) throw new Error(`Craft ${res.status}`);
-      for (const t of (await res.json()).items || []) {
+    // "all" adds tasks in documents with no date, which the other three
+    // leave out; it also holds trashed and template ones, which are skipped.
+    const get = async (path) => { const res = await fetch(base + path, { headers }); if (!res.ok) throw new Error(`Craft ${res.status}`); return (await res.json()).items || []; };
+    const undated = await Promise.all([get("/tasks?scope=all"), get("/documents?location=trash"), get("/documents?location=templates")])
+      .then(([all, trash, templates]) => { const skip = new Set([...trash, ...templates].map(d => d.id));
+        return all.filter(t => t.location?.type === "document" && !skip.has(t.location.documentId)); })
+      .catch(() => []);
+    for (const scope of ["active", "upcoming", "inbox", "all"]) {
+      const items = scope === "all" ? undated : await get(`/tasks?scope=${scope}`);
+      for (const t of items) {
         if (t.taskInfo?.state !== "todo" || seen.has(t.id)) continue;
         seen.add(t.id);
         const text = String(t.markdown || "").replace(/^\s*[-*]\s*\[[ x]\]\s*/, "").trim();
