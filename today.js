@@ -18,6 +18,7 @@
 import { supabase } from "./auth.js";
 import * as google from "./google.js?v=1";
 import * as todoist from "./shared/todoist.js?v=16";
+import * as hub from "./shared/hubtasks.js?v=1";
 
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
 const pad = (n) => String(n).padStart(2, "0");
@@ -60,17 +61,22 @@ async function calendar({ day, tomorrow }) {
 // ── tasks.: due on the day shown, and what's left over from before ──
 // The connections are the ones saved in tasks. on this device. Each task
 // left over is kept in `leftovers`, for moving them all to tomorrow.
-let leftovers = [];   // { spaceId, id, text, todoist? }
+let leftovers = [];   // { spaceId, id, text, todoist?, builtin? }
 async function tasks({ day, tomorrow }) {
   const settings = read("tasks.settings") || {};
   const today = isoDay(new Date()), shown = isoDay(day);
   let due = 0, late = 0, any = false;
   const found = [];
-  const seenTask = (spaceId, id, text, date, todo) => {
+  const seenTask = (spaceId, id, text, date, todo, builtin = false) => {
     if (!date) return;
     if (date === shown) due++;
-    if (date <= today && (tomorrow || date < today)) { late++; found.push({ spaceId, id, text, todoist: todo }); }
+    if (date <= today && (tomorrow || date < today)) { late++; found.push({ spaceId, id, text, todoist: todo, builtin }); }
   };
+  // Tasks kept in lifeOS, which everyone signed in has.
+  const builtin = hub.loadTasks().then(list => {
+    if (list.length) any = true;
+    for (const t of list) seenTask(t.spaceId, t.id, t.text, t.date, undefined, true);
+  });
   await Promise.all(Object.entries(settings.spaces || {}).filter(([, s]) => s?.url).map(async ([spaceId, s]) => {
     any = true;
     const m = String(s.url).match(/connect\.craft\.do\/links\/[^/?#\s]+/i);
@@ -97,8 +103,9 @@ async function tasks({ day, tomorrow }) {
     const body = await res.json();
     for (const t of body.results || body.items || []) seenTask("todoist", String(t.id), t.content, t.due?.date?.slice(0, 10), { id: String(t.id), due: t.due });
   }
+  await builtin;
   leftovers = tomorrow ? found : [];
-  if (!any) return { main: "Not set up", sub: "set up in connections", muted: true, action: "setup" };
+  if (!any) return { main: tomorrow ? "Nothing yet" : "All clear", sub: tomorrow ? "nothing for tomorrow" : "nothing due today", muted: true };
   if (tomorrow) {
     return {
       main: due ? `${due} for tomorrow` : "Nothing yet",
@@ -123,9 +130,21 @@ async function moveLeftovers() {
   let moved = 0;
   const failed = [], done = [];
   todoist.setToken(settings.todoist?.token);
+  // lifeOS's own in one request.
+  const own = leftovers.filter(t => t.builtin);
+  if (own.length) {
+    try {
+      await hub.rescheduleTask(own.map(t => t.id), date);
+      moved += own.length;
+      done.push(...own.map(t => String(t.id)));
+    } catch (err) {
+      console.error("today: moving lifeOS tasks:", err);
+      failed.push(...own.map(t => t.text));
+    }
+  }
   // One at a time per Craft space: a task in a document the connection
   // can't edit fails on its own instead of taking the batch with it.
-  await Promise.all(leftovers.map(async (t) => {
+  await Promise.all(leftovers.filter(t => !t.builtin).map(async (t) => {
     try {
       if (t.todoist) await todoist.rescheduleTask(t.todoist, date);
       else {

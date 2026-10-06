@@ -22,6 +22,7 @@ import { supabase } from "./auth.js";
 import { shoppingList } from "./shopadd.js?v=2";
 import { parseTasks, SPACES } from "./shared/parse.js?v=15";
 import * as todoist from "./shared/todoist.js?v=16";
+import * as hub from "./shared/hubtasks.js?v=1";
 import * as speech from "./shared/speech.js?v=15";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -229,10 +230,24 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     if (!list.length) return;
     const s = settings();
     const bySpace = new Map();
-    for (const l of list) bySpace.set(l.shape.space, [...(bySpace.get(l.shape.space) || []), l]);
+    // Spaces with no Craft or Todoist connection here keep tasks in lifeOS.
+    for (const l of list) {
+      const key = hub.sourceOf(s, l.shape.space) === "lifeos" ? "lifeos" : l.shape.space;
+      bySpace.set(key, [...(bySpace.get(key) || []), l]);
+    }
     const timed = [];
     for (const [spaceId, group] of bySpace) {
       try {
+        if (spaceId === "lifeos") {
+          const made = await hub.addTasks(group.map(l => ({ text: l.shape.text, date: l.shape.date, spaceId: l.shape.space })));
+          group.forEach((l, i) => {
+            const id = made[i]?.id;
+            l.state = "ok";
+            l.undo = () => hub.deleteTask(id);
+            timed.push({ l, id });
+          });
+          continue;
+        }
         if (spaceId === "todoist") {
           todoist.setToken(s.todoist?.token);
           if (!todoist.hasToken()) throw new Error("set up joint. in tasks.");

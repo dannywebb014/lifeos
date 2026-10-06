@@ -289,11 +289,11 @@
       return { big: visited.data.length, unit: "visited", lines: [`<b>${saved.data.length}</b> new saved${names ? ` · ${names}` : ""}`], stat: { visited: visited.data.length, saved: saved.data.length } };
     }
 
-    // Tasks finished: Craft (the connections saved in tasks.) and Todoist.
+    // Tasks finished: lifeOS, Craft (the connections saved in tasks.) and Todoist.
     async function tasks() {
       const settings = read("tasks.settings") || {};
       const from = monday, to = addDays(monday, 7);
-      let craftDone = 0, craftUnknown = 0, todoistDone = 0;
+      let craftDone = 0, craftUnknown = 0, todoistDone = 0, ownDone = 0;
       const problems = [];
       const cleanKey = (k) => String(k || "").replace(/[\s ​-‍﻿]/g, "");
       await Promise.all(Object.values(settings.spaces || {}).filter(s => s?.url).map(async (space) => {
@@ -312,6 +312,10 @@
           }
         } catch (err) { problems.push(err.message); }
       }));
+      try {
+        const { countDone } = await import("/lifeos/shared/hubtasks.js?v=1");
+        ownDone = await countDone(from, to);
+      } catch (err) { problems.push(`lifeOS (${err.message})`); }
       const token = cleanKey(settings.todoist?.token);
       if (token) {
         try {
@@ -322,11 +326,10 @@
           todoistDone = (body.items || body.results || []).length;
         } catch (err) { problems.push(err.message); }
       }
-      if (!settings.spaces && !token) return { big: "–", lines: ["Set up tasks. on this device first."], muted: true };
-      const lines = [`Craft <b>${craftDone}</b> · Todoist <b>${todoistDone}</b>`];
+      const lines = [[ownDone || (!settings.spaces && !token) ? `lifeOS <b>${ownDone}</b>` : "", settings.spaces ? `Craft <b>${craftDone}</b>` : "", token ? `Todoist <b>${todoistDone}</b>` : ""].filter(Boolean).join(" · ")];
       if (craftUnknown) lines.push(`${craftUnknown} finished in Craft with no date`);
       if (problems.length) lines.push(`<span class="up">Couldn’t reach ${esc(problems.join(", "))}</span>`);
-      return { big: craftDone + todoistDone, unit: "done", lines, stat: { craft: craftDone, todoist: todoistDone } };
+      return { big: ownDone + craftDone + todoistDone, unit: "done", lines, stat: { lifeos: ownDone, craft: craftDone, todoist: todoistDone } };
     }
 
     // ── The review: rating and three questions, saved as you go ──

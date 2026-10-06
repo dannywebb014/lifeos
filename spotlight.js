@@ -67,10 +67,12 @@ const SOURCES = [
   } },
 ];
 
-// Open tasks from Craft (the connections saved in tasks.) and Todoist.
+// Open tasks from lifeOS, Craft (the connections saved in tasks.) and Todoist.
 async function tasks() {
   const settings = read("tasks.settings") || {};
-  const out = [];
+  const { loadTasks } = await import("./shared/hubtasks.js?v=1");
+  const spaceName = { my: "my space.", work: "work.", todoist: "joint." };
+  const out = (await loadTasks()).map(t => ({ title: t.text, sub: `${spaceName[t.spaceId] || t.spaceId}${t.date ? ` · ${t.date}` : ""}`, text: t.text, href: `${BASE}/taskhub/` }));
   const key = (k) => String(k || "").replace(/[\s ​-‍﻿]/g, "");
   const labels = { my: "my space.", work: "work." };
   await Promise.all(Object.entries(settings.spaces || {}).filter(([, s]) => s?.url).map(async ([id, s]) => {

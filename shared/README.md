@@ -7,6 +7,7 @@ of two that have to be kept in step by hand.
 - `parse.js`: turns dictated or typed text into tasks (space, date, time, length)
 - `todoist.js`: the Todoist API: projects, tasks, adding, closing, rescheduling (keeping a repeat), renaming
 - `speech.js`: the browser's speech recognition, written into a text box
+- `hubtasks.js`: tasks kept in lifeOS itself (Supabase table `hub_tasks`, set up by `sql/tasks.sql`), for any space with no Craft or Todoist connection. joint. tasks are shared with the food. household. today., the add box, search and week. use it too.
 
 The apps import these with their own release number (`/lifeos/shared/parse.js?v=N`),
 which each app's `bump.sh` raises. After changing a file here, push this repo first,
