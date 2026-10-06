@@ -200,24 +200,21 @@
     iframe.on { visibility: visible; }
     iframe.on.ready { opacity: 1; }
 
-    /* a small close button in the top-left corner */
+    /* a thin handle halfway down the left edge: tap it to close, or swipe from it */
     .close {
       position: fixed; z-index: 12;
-      left: calc(8px + env(safe-area-inset-left)); top: calc(8px + env(safe-area-inset-top));
-      width: 28px; height: 28px; border-radius: 50%;
-      border: 0;
-      background: color-mix(in srgb, var(--text) 14%, transparent);
-      -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-      color: var(--text);
-      display: grid; place-items: center;
-      cursor: pointer;
+      left: calc(3px + env(safe-area-inset-left)); top: 50%;
+      width: 4px; height: 44px; margin-top: -22px; padding: 0;
+      border: 0; border-radius: 2px;
+      background: var(--text);
+      cursor: pointer; touch-action: none;
       opacity: 0; pointer-events: none;
       transition: opacity .3s .2s;
     }
-    body.open .close { opacity: .55; pointer-events: auto; }
-    body.open .close:hover { opacity: .9; }
-    /* 16px must be visible even over busy apps, so the hit area stays 28px */
-    .close::before { content: ""; position: absolute; inset: -8px; }
+    body.open .close { opacity: .22; pointer-events: auto; }
+    body.open .close:hover { opacity: .45; }
+    /* the bar is thin, so the hit area reaches well beyond it */
+    .close::before { content: ""; position: absolute; inset: -14px -16px -14px -6px; }
 
     /* an invisible strip down the left edge picks up the swipe back */
     .edge {
@@ -228,7 +225,6 @@
     /* search is for the picker; an open app keeps its own top-right corner */
     body.open .sl-btn { display: none; }
     .sheet.swiping { transition: none; }
-    .close svg { width: 12px; height: 12px; }
   </style>
 </head>
 <body>
@@ -249,9 +245,7 @@
     <div class="loading" id="loading"></div>
   </section>
   <div class="edge" id="edge"></div>
-  <button class="close" id="close" aria-label="Back to lifeOS.">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
-  </button>
+  <button class="close" id="close" aria-label="Back to lifeOS."></button>
 
   <script type="module">
     // Search across every app (S, / or ⌘K), with results opening in their tab.
@@ -444,28 +438,36 @@
       return true;
     };
 
-    $('close').onclick = back;
+    // A tap on the handle is handled with the swipe below; this is for the keyboard.
+    $('close').onclick = e => { if (e.detail === 0) back(); };
 
     // Swipe right from the left edge: the app follows your finger, and
     // letting go past a third of the way (or with a flick) closes it.
+    // The close handle sits on that edge too, so it swipes the same way, and
+    // a tap on it (barely moving) closes straight away.
     const edge = $('edge');
     let swipe = null;
-    edge.addEventListener('pointerdown', e => {
-      swipe = { x: e.clientX, t: performance.now(), dx: 0 };
-      edge.setPointerCapture(e.pointerId);
+    const startSwipe = e => {
+      swipe = { x: e.clientX, t: performance.now(), dx: 0, handle: e.currentTarget.id === 'close' };
+      e.currentTarget.setPointerCapture(e.pointerId);
       sheet.classList.add('swiping');
-    });
-    edge.addEventListener('pointermove', e => {
+    };
+    const moveSwipe = e => {
       if (!swipe) return;
       swipe.dx = Math.max(0, e.clientX - swipe.x);
       sheet.style.transform = `translateX(${swipe.dx}px)`;
-    });
-    function endSwipe() {
+    };
+    function endSwipe(e) {
       if (!swipe) return;
-      const { dx, t } = swipe;
+      const { dx, t, handle } = swipe;
       swipe = null;
       const fast = dx / (performance.now() - t) > 0.5;
       sheet.classList.remove('swiping');
+      if (handle && dx < 8 && e.type === 'pointerup') {
+        sheet.style.transform = '';
+        back();
+        return;
+      }
       sheet.style.transition = 'transform .25s ease-out';
       if (dx > innerWidth / 3 || (fast && dx > 40)) {
         sheet.style.transform = 'translateX(100%)';
@@ -480,8 +482,12 @@
         setTimeout(() => { sheet.style.transition = ''; }, 260);
       }
     }
-    edge.addEventListener('pointerup', endSwipe);
-    edge.addEventListener('pointercancel', endSwipe);
+    for (const el of [edge, $('close')]) {
+      el.addEventListener('pointerdown', startSwipe);
+      el.addEventListener('pointermove', moveSwipe);
+      el.addEventListener('pointerup', endSwipe);
+      el.addEventListener('pointercancel', endSwipe);
+    }
 
     // ── start ──
     // calendar. and tasks. sign in to Google through this whole page, since
