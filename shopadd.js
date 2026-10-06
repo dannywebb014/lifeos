@@ -22,7 +22,8 @@ const checkKey = (name) => `${name}||||m`;
 // off. add() puts an item on the list the way food.'s quick-add bar does (see
 // the top of this file), and takes a master item or a name: a name matching a
 // master item is that item, anything else goes on as a one-off. Resolves
-// { name, already } (already: it was on the list). Used by capture.js too.
+// { name, already } (already: it was on the list) and an undo() that takes
+// back exactly what it changed. Used by capture.js too.
 export function shoppingList() {
   const s = { household: null, items: [], bought: new Set() };
   s.load = async () => {
@@ -45,12 +46,13 @@ export function shoppingList() {
   s.add = async (what) => {
     const m = typeof what === "string" ? s.find(what) : what;
     if (!m) {
-      const name = String(what).trim();
-      const { error } = await supabase.from("shop_extras").insert({ id: crypto.randomUUID(), household_id: s.household, name, amount: "", unit: "" });
+      const name = String(what).trim(), id = crypto.randomUUID();
+      const { error } = await supabase.from("shop_extras").insert({ id, household_id: s.household, name, amount: "", unit: "" });
       if (error) throw error;
-      return { name };
+      return { name, undo: async () => { const r = await supabase.from("shop_extras").delete().eq("id", id); if (r.error) throw r.error; } };
     }
-    if (s.onList(m)) return { name: m.name, already: true };
+    if (s.onList(m)) return { name: m.name, already: true, undo: async () => {} };
+    const wasActive = m.active, wasBought = s.bought.has(checkKey(m.name));
     if (!m.active) {
       const { error } = await supabase.from("master_items").update({ active: true }).eq("id", m.id);
       if (error) throw error;
@@ -61,7 +63,18 @@ export function shoppingList() {
       if (error) throw error;
       s.bought.delete(checkKey(m.name));
     }
-    return { name: m.name };
+    return { name: m.name, undo: async () => {
+      if (!wasActive) {
+        const { error } = await supabase.from("master_items").update({ active: false }).eq("id", m.id);
+        if (error) throw error;
+        m.active = false;
+      }
+      if (wasBought) {
+        const { error } = await supabase.from("shop_checked").upsert({ household_id: s.household, item_key: checkKey(m.name), checked: true });
+        if (error) throw error;
+        s.bought.add(checkKey(m.name));
+      }
+    } };
   };
   return s;
 }

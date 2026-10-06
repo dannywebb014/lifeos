@@ -273,7 +273,7 @@
     // Search across every app (S, / or ⌘K), with results opening in their tab.
     import { mountSpotlight } from "/lifeos/spotlight.js?v=3";
     // Add anything (A), from beside search: tasks, shopping, wish. (capture.js).
-    import { mountCapture } from "/lifeos/capture.js?v=2";
+    import { mountCapture } from "/lifeos/capture.js?v=3";
     // today. (T), beside add: what's on today in each app.
     import { mountToday } from "/lifeos/today.js?v=2";
     import { signOut } from "/lifeos/auth.js";
@@ -287,10 +287,18 @@
       go: (href) => window.lifeosOpenUrl?.(href) || false,
       enabled: () => !document.body.classList.contains('open'),
     });
-    mountCapture({
+    const capture = mountCapture({
       enabled: () => !document.body.classList.contains('open'),
       added: (ids) => { ids.forEach(id => window.lifeosReload?.(id)); window.lifeosToday?.refresh(); },
     });
+    // lifeos/?add=… opens the add box with that already in, so an iPhone
+    // Shortcut (dictate, then open the link) adds from Siri or the lock screen.
+    // It waits for Add, so nothing goes in unseen.
+    const params = new URLSearchParams(location.search);
+    if (params.has('add')) {
+      capture.open(params.get('add') || '');
+      history.replaceState(history.state, '', location.pathname + location.hash);
+    }
     window.lifeosToday = mountToday({
       enabled: () => !document.body.classList.contains('open'),
       open: (id, url) => (url ? window.lifeosOpenUrl?.(url) : window.lifeosOpen?.(id)),
@@ -442,6 +450,17 @@
       app ? open(app, false) : close();
     });
     addEventListener('keydown', e => { if (e.key === 'Escape' && openId) back(); });
+    // 1–9 open the apps in wheel order, from anywhere on this page (an open
+    // app has the keyboard itself, so this is mostly the picker).
+    addEventListener('keydown', e => {
+      if (e.metaKey || e.ctrlKey || e.altKey || !/^[1-9]$/.test(e.key)) return;
+      if (e.target.closest?.('input, textarea, select, [contenteditable]') || document.querySelector('.sl-back:not([hidden])')) return;
+      const app = APPS[Number(e.key) - 1];
+      if (!app) return;
+      e.preventDefault();
+      if (!openId) toApp(APPS.indexOf(app));
+      window.lifeosOpen(app.id);
+    });
 
     // A search result opens in its app's tab, at that item: the app whose
     // address it starts with (the longest, so wish. wins over lifeOS itself).

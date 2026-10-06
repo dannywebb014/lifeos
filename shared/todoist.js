@@ -124,6 +124,9 @@ export const addTask = ({ text, date, projectId }) =>
     body: JSON.stringify({ content: text, ...(date ? { due_date: date } : {}), ...(projectId ? { project_id: projectId } : {}) }),
   });
 
+// Taking back a task just added (the undo in lifeOS's add box).
+export const deleteTask = (id) => call(`/tasks/${id}`, { method: "DELETE" });
+
 // "joint, house fix the gate" → the House project, task "Fix the gate".
 // Without a project name it falls back to the shared list.
 export function pickProject(text, projects) {

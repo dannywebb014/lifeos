@@ -12,13 +12,17 @@
 //   - tasks.: everything else, read the way tasks. reads dictation (space,
 //     date, time), with a time blocked out on the calendar
 // Tapping a line's label sends it somewhere else instead. Enter adds them all;
-// shift+Enter starts a new line. A line that fails stays in the box.
+// shift+Enter starts a new line. A line that fails stays in the box. For a few
+// seconds after, Undo takes back what went in. The mic (where the browser
+// has speech recognition) writes what's said into the box, a line a phrase.
 // `added` is told which apps changed, so the picker can reload their frames.
+// open(text) opens it with text already in (lifeOS's ?add=…, for Siri).
 
 import { supabase } from "./auth.js";
 import { shoppingList } from "./shopadd.js?v=2";
 import { parseTasks, SPACES } from "./shared/parse.js?v=15";
-import * as todoist from "./shared/todoist.js?v=15";
+import * as todoist from "./shared/todoist.js?v=16";
+import * as speech from "./shared/speech.js?v=15";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
@@ -44,6 +48,12 @@ const CSS = `
   .cap-state.err { color:#b54e4e; }
   .cap-go { margin-left:auto; border:none; border-radius:9px; padding:5px 14px; background:var(--sl-text); color:var(--sl-surface); font:inherit; font-weight:700; cursor:pointer; }
   .cap-go:disabled { opacity:.4; cursor:default; }
+  .cap-mic { flex-shrink:0; display:inline-flex; align-items:center; gap:5px; border:1px solid var(--sl-line); border-radius:9px; padding:4px 10px;
+    background:none; color:var(--sl-muted); font:inherit; font-size:.8rem; font-weight:600; cursor:pointer; }
+  .cap-mic svg { width:14px; height:14px; }
+  .cap-mic.on { color:#fff; background:#c0504d; border-color:#c0504d; }
+  .cap-undo { border:none; background:none; color:var(--sl-text); font:inherit; font-size:.8rem; font-weight:700; text-decoration:underline; cursor:pointer; padding:0 4px; }
+  .sl-foot { align-items:center; }
 `;
 
 // The date reader tasks. uses, fetched the first time the box opens.
@@ -68,14 +78,15 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     <div class="sl-box">${PLUS.replace("<svg", `<svg class="cap-ic"`)}
       <textarea class="cap-q" rows="1" placeholder="Add anything… a task, “buy milk”, “want AirPods”" autocapitalize="sentences" enterkeyhint="done" aria-label="What to add, one per line"></textarea></div>
     <div class="sl-out"></div>
-    <div class="sl-foot" aria-live="polite"><span class="cap-msg"></span><button type="button" class="cap-go" disabled>Add</button></div></div>`;
+    <div class="sl-foot" aria-live="polite"><button type="button" class="cap-mic" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Speak</span></button><span class="cap-msg"></span><button type="button" class="cap-undo" hidden>Undo</button><button type="button" class="cap-go" disabled>Add</button></div></div>`;
   document.body.append(back);
   const q = back.querySelector(".cap-q"), out = back.querySelector(".sl-out"), msg = back.querySelector(".cap-msg"), go = back.querySelector(".cap-go");
+  const micBtn = back.querySelector(".cap-mic"), undoBtn = back.querySelector(".cap-undo");
 
   const btn = document.createElement("button");
   btn.type = "button"; btn.className = "sl-btn cap-btn"; btn.title = "Add anything (A)"; btn.setAttribute("aria-label", "Add anything");
   btn.innerHTML = PLUS;
-  btn.addEventListener("click", open);
+  btn.addEventListener("click", () => open());
   document.body.append(btn);
 
   // ── What it needs: the shopping list, the people on gift lists, the task parser ──
@@ -143,7 +154,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     const old = new Map(lines.map(l => [l.raw, l]));
     lines = q.value.split("\n").map(r => r.trim()).filter(Boolean).map(raw => {
       const had = old.get(raw);
-      return { raw, chosen: had?.chosen || null, state: had?.state === "err" ? null : had?.state || null, note: "" };
+      return { raw, chosen: had?.chosen || null, state: null, note: "" };
     });
     paint();
   }
@@ -171,6 +182,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
   let busy = false;
   async function addAll() {
     if (busy || !lines.length) return;
+    mic.stop();
     busy = true; delete msg.dataset.keep;
     await ready;
     for (const l of lines) { l.kind = l.chosen || guess(l.raw); l.shape = shape(l, l.kind); l.state = "busy"; }
@@ -183,12 +195,15 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
       try {
         if (l.kind === "shop") {
           if (!shop.household) throw new Error("no shopping list");
-          for (const n of l.shape.names) await shop.add(n.master || n.name);
+          const undos = [];
+          for (const n of l.shape.names) undos.push((await shop.add(n.master || n.name)).undo);
+          l.undo = async () => { for (const u of undos.reverse()) await u(); };
           touched.add("food");
         } else {
           const { data: { user } } = await supabase.auth.getUser();
-          const { error } = await supabase.from("wish_items").insert({ name: l.shape.name, user_id: user.id, person_id: l.shape.person?.id || null, status: "open" });
+          const { data, error } = await supabase.from("wish_items").insert({ name: l.shape.name, user_id: user.id, person_id: l.shape.person?.id || null, status: "open" }).select("id").single();
           if (error) throw error;
+          l.undo = async () => { const r = await supabase.from("wish_items").delete().eq("id", data.id); if (r.error) throw r.error; };
           touched.add("wish");
         }
         l.state = "ok";
@@ -201,6 +216,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     const ok = lines.filter(l => l.state === "ok").length, bad = lines.length - ok;
     msg.textContent = bad ? `Added ${ok}. ${bad} didn’t go in and ${bad === 1 ? "is" : "are"} still here.` : `Added ${ok === 1 ? "it" : `all ${ok}`}`;
     msg.dataset.keep = "1";
+    offerUndo(lines.filter(l => l.state === "ok"), [...touched]);
     // What went in leaves the box; what failed stays to try again.
     q.value = lines.filter(l => l.state !== "ok").map(l => l.raw).join("\n");
     paint();
@@ -224,24 +240,20 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
           for (const l of group) {
             const made = await todoist.addTask({ text: l.shape.text, date: l.shape.date, projectId: todoist.pickProject(l.shape.text, projects).project?.id });
             l.state = "ok";
+            l.undo = () => todoist.deleteTask(made.id);
             timed.push({ l, id: made?.id });
           }
           continue;
         }
-        const conn = s.spaces?.[spaceId];
-        if (!conn?.url) throw new Error(`set up ${SPACES.find(x => x.id === spaceId)?.label || spaceId} in tasks.`);
-        const m = String(conn.url).match(/connect\.craft\.do\/links\/[^/?#\s]+/i);
-        const base = m ? `https://${m[0]}/api/v1` : conn.url.replace(/\/+$/, "");
-        const key = String(conn.key || "").replace(/[\s ​-‍﻿]/g, "");
-        const res = await fetch(`${base}/tasks`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) },
-          body: JSON.stringify({ tasks: group.map(l => ({ markdown: l.shape.text, location: { type: "inbox" }, ...(l.shape.date ? { taskInfo: { scheduleDate: l.shape.date } } : {}) })) }),
-        });
-        if (!res.ok) throw new Error(`Craft ${res.status}`);
-        const made = await res.json().catch(() => null);
+        const made = await craftCall(spaceId, "/tasks", "POST",
+          { tasks: group.map(l => ({ markdown: l.shape.text, location: { type: "inbox" }, ...(l.shape.date ? { taskInfo: { scheduleDate: l.shape.date } } : {}) })) });
         const ids = (made?.items || made?.tasks || (Array.isArray(made) ? made : [])).map(x => x?.id);
-        group.forEach((l, i) => { l.state = "ok"; timed.push({ l, id: ids.length === group.length ? ids[i] : null }); });
+        group.forEach((l, i) => {
+          const id = ids.length === group.length ? ids[i] : null;
+          l.state = "ok";
+          l.undo = () => craftDelete(spaceId, id, l.shape.text);
+          timed.push({ l, id });
+        });
       } catch (err) {
         console.error(`capture: tasks (${spaceId}):`, err);
         for (const l of group) { l.state = "err"; l.note = err instanceof TypeError ? "couldn’t reach it" : err.message; }
@@ -256,24 +268,106 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     const later = [];
     for (const { l, id } of blocks) {
       const item = { id: id ? String(id) : null, text: l.shape.text, spaceId: l.shape.space, date: l.shape.date, time: l.shape.time, minutes: l.shape.minutes || gcal.DEFAULT_MINUTES };
+      const undoTask = l.undo;
       if (id && gcal.isConnected()) {
-        try { await gcal.createBlock({ id: item.id, text: item.text, spaceId: item.spaceId }, item.date, item.time, item.minutes); continue; }
-        catch (err) { console.error("capture: time block:", err); }
+        try {
+          const block = await gcal.createBlock({ id: item.id, text: item.text, spaceId: item.spaceId }, item.date, item.time, item.minutes);
+          l.undo = async () => { await undoTask(); await gcal.deleteBlock(block); };
+          continue;
+        } catch (err) { console.error("capture: time block:", err); }
       }
       later.push(item);
+      l.undo = async () => {
+        await undoTask();
+        gcal.setPending(gcal.pending().filter(p => !(p.text === item.text && p.date === item.date && p.time === item.time)));
+      };
     }
     if (later.length) gcal.setPending([...gcal.pending(), ...later]);
   }
 
+  // ── Undo: for a few seconds after adding, takes back what went in ──
+  let undoTimer = null;
+  function offerUndo(done, apps) {
+    clearTimeout(undoTimer);
+    const list = done.filter(l => l.undo);
+    undoBtn.hidden = !list.length;
+    if (!list.length) return;
+    undoBtn.onclick = async () => {
+      clearTimeout(undoTimer);
+      undoBtn.hidden = true;
+      msg.textContent = "Undoing…";
+      msg.dataset.keep = "1";
+      const stuck = [], undone = [];
+      for (const l of [...list].reverse()) {
+        try { await l.undo(); undone.unshift(l.raw); }
+        catch (err) { console.error("capture: undo:", err); stuck.push(title(l.kind, l.shape)); }
+      }
+      msg.textContent = stuck.length
+        ? `Couldn’t take back ${stuck.join(", ")}. Remove ${stuck.length === 1 ? "it" : "them"} in the app.`
+        : "Taken back";
+      // Back in the box, to fix and add again.
+      if (undone.length) { q.value = [...undone, q.value].filter(Boolean).join("\n"); read_(); }
+      added(apps);
+      q.focus();
+    };
+    undoTimer = setTimeout(() => { undoBtn.hidden = true; }, 8000);
+  }
+
+  // ── Craft, with the connections saved in tasks. on this device ──
+  async function craftCall(spaceId, path, method = "GET", body) {
+    const conn = settings().spaces?.[spaceId];
+    if (!conn?.url) throw new Error(`set up ${SPACES.find(x => x.id === spaceId)?.label || spaceId} in tasks.`);
+    const m = String(conn.url).match(/connect\.craft\.do\/links\/[^/?#\s]+/i);
+    const base = m ? `https://${m[0]}/api/v1` : conn.url.replace(/\/+$/, "");
+    const key = String(conn.key || "").replace(/[\s ​-‍﻿]/g, "");
+    const res = await fetch(base + path, {
+      method,
+      headers: { "Content-Type": "application/json", Accept: "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    if (!res.ok) throw new Error(`Craft ${res.status}`);
+    return res.json().catch(() => null);
+  }
+  // Craft doesn't document deleting a task; this is how it deletes collection
+  // items (see mediahub craft.js). Without the new task's ID, it is the
+  // newest inbox task with that text.
+  async function craftDelete(spaceId, id, text) {
+    if (!id) {
+      const inbox = await craftCall(spaceId, "/tasks?scope=inbox");
+      const strip = (md) => String(md || "").replace(/^\s*[-*]\s*\[[ x]\]\s*/, "").trim();
+      id = (inbox?.items || []).filter(t => t.taskInfo?.state === "todo" && strip(t.markdown) === text).at(-1)?.id;
+      if (!id) throw new Error("couldn’t find the new task");
+    }
+    await craftCall(spaceId, "/tasks", "DELETE", { idsToDelete: [id] });
+  }
+
+  // ── Speaking: what's said goes into the box, a line a phrase ──
+  const mic = speech.listener(q, {
+    onChange: () => { delete msg.dataset.keep; read_(); },
+    onInterim: (said) => { if (said) { msg.textContent = `“${said}”`; msg.dataset.keep = "1"; } },
+    onState: (on) => {
+      micBtn.classList.toggle("on", on);
+      micBtn.querySelector("span").textContent = on ? "Stop" : "Speak";
+      if (!on) { delete msg.dataset.keep; paint(); }
+    },
+    onError: (message) => { msg.textContent = message; msg.dataset.keep = "1"; },
+  });
+  if (speech.supported) {
+    micBtn.hidden = false;
+    micBtn.addEventListener("click", () => (mic.listening ? mic.stop() : mic.start()));
+  }
+
   // ── Opening and closing ──
-  function open() {
+  function open(text = "") {
     back.hidden = false;
     delete msg.dataset.keep;
+    undoBtn.hidden = true;
+    if (text) q.value = [q.value.trim(), String(text).trim()].filter(Boolean).join("\n");
     load();
     read_();
     q.focus();
   }
-  function close() { if (!busy) back.hidden = true; }
+  function close() { if (busy) return; mic.stop(); back.hidden = true; }
   q.addEventListener("input", () => { delete msg.dataset.keep; read_(); });
   q.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addAll(); }
