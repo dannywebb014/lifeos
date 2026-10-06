@@ -1,15 +1,13 @@
-// The "today" strip on the lifeOS picker: a card per app for what matters
-// today, each opening its app when tapped.
+// "today." on the lifeOS picker: a pop-up with a card per app for what
+// matters today, each opening its app when tapped.
 //
 //   import { mountToday } from "/lifeos/today.js";
-//   const today = mountToday(element, { open: (appId, url) => … });
-//   today.refresh();   // e.g. on coming back from an app
+//   mountToday({ open: (appId, url) => …, enabled });
 //
 // Cards: the next calendar event, tasks due today and overdue, tonight's
 // dinner from food.'s plan, today's train. session, and the breathe. streak.
 // Each loads on its own and keeps quiet if it can't (no data, no sign-in),
-// so one slow or broken app never holds up the rest. The strip folds down to
-// a one-line summary; that choice stays on this device.
+// so one slow or broken app never holds up the rest.
 
 import { supabase } from "./auth.js";
 
@@ -21,7 +19,6 @@ const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const BASE = "https://dannywebb014.github.io";
-const FOLD_KEY = "lifeos.today.folded";
 
 // ── calendar.: the next event left today, on the main calendar ──
 // Uses calendar.'s Google sign-in (same site, same storage). Once it has
@@ -174,50 +171,54 @@ const CARDS = [
   { id: "breathe", label: "breathe", load: breathing },
 ];
 
+const SUN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
+
+// It borrows search's look (spotlight.js), so mount that on the page too.
 const CSS = `
-  .today { position:relative; width:100%; max-width:520px; margin-top:1rem; }
-  .today-head { display:flex; align-items:center; gap:.4rem; width:100%; border:0; background:none; padding:.2rem .3rem; color:var(--muted);
-    font:inherit; font-size:.8rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; text-align:left; }
-  .today-head svg { width:12px; height:12px; flex-shrink:0; transition:transform .2s; }
-  .today.folded .today-head svg { transform:rotate(-90deg); }
-  .today-sum { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-transform:none; letter-spacing:0; font-weight:500; opacity:0; transition:opacity .2s; }
-  .today.folded .today-sum { opacity:1; }
-  .today-cards { display:flex; gap:.5rem; overflow-x:auto; scrollbar-width:none; padding:.4rem .1rem .3rem; scroll-snap-type:x proximity; }
-  .today-cards::-webkit-scrollbar { display:none; }
-  .today.folded .today-cards { display:none; }
-  .tcard { flex:0 0 auto; width:9.2rem; min-height:4.6rem; padding:.55rem .7rem; border-radius:14px; text-align:left; cursor:pointer;
-    background:var(--surface); border:1px solid var(--line); color:var(--text); font:inherit; scroll-snap-align:start;
+  .td-btn { right:116px; }
+  .td-panel { padding:14px 14px 12px; }
+  .td-head { display:flex; align-items:baseline; gap:.5rem; margin:0 2px 10px; }
+  .td-head h2 { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:1.35rem; color:var(--life-logo); }
+  .td-head h2 i { font-style:normal; color:var(--life-accent); }
+  .td-head span { color:var(--sl-muted); font-size:.85rem; }
+  .td-cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(9.5rem, 1fr)); gap:.5rem; overflow-y:auto; }
+  .tcard { min-height:4.8rem; padding:.6rem .75rem; border-radius:14px; text-align:left; cursor:pointer;
+    background:var(--bg); border:1px solid var(--sl-line); color:var(--sl-text); font:inherit;
     display:flex; flex-direction:column; gap:.15rem; }
+  .tcard[hidden] { display:none; }
+  .tcard:hover { border-color:var(--a); }
   .tcard:active { transform:scale(.97); }
-  .tcard .tl { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:.88rem; color:var(--c); }
+  .tcard .tl { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:.9rem; color:var(--c); }
   .tcard .tl i { font-style:normal; color:var(--a); }
-  .tcard .tm { font-weight:600; font-size:.95rem; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  .tcard .ts { font-size:.78rem; color:var(--muted); }
+  .tcard .tm { font-weight:600; font-size:.98rem; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .tcard .ts { font-size:.8rem; color:var(--sl-muted); }
   .tcard .ts .late { color:#c0504d; font-weight:600; }
-  .tcard.muted .tm { color:var(--muted); font-weight:500; }
+  .tcard.muted .tm { color:var(--sl-muted); font-weight:500; }
   .tcard.done .tm { color:var(--c); }
-  .tcard.wait .tm { color:var(--muted); opacity:.5; }
+  .tcard.wait .tm { color:var(--sl-muted); opacity:.5; }
 `;
 
-export function mountToday(el, { open }) {
+// A sun beside search opens it (or T); a card closes it and opens its app.
+export function mountToday({ open: openApp, enabled = () => true }) {
   const style = document.createElement("style");
   style.textContent = CSS;
   document.head.append(style);
 
-  el.classList.add("today");
-  el.innerHTML = `<button class="today-head" type="button" aria-expanded="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-      <span>today</span><span class="today-sum"></span></button>
-    <div class="today-cards"></div>`;
-  const head = el.querySelector(".today-head"), sum = el.querySelector(".today-sum"), row = el.querySelector(".today-cards");
+  const back = document.createElement("div");
+  back.className = "sl-back"; back.hidden = true;
+  back.innerHTML = `<div class="sl-panel td-panel" role="dialog" aria-modal="true" aria-label="Today">
+    <div class="td-head"><h2>today<i>.</i></h2><span></span></div>
+    <div class="td-cards"></div></div>`;
+  document.body.append(back);
+  back.querySelector(".td-head span").textContent =
+    new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }).toLowerCase();
+  const row = back.querySelector(".td-cards");
 
-  const fold = (on) => {
-    el.classList.toggle("folded", on);
-    head.setAttribute("aria-expanded", String(!on));
-    try { localStorage.setItem(FOLD_KEY, on ? "1" : "0"); } catch { /* private mode */ }
-  };
-  fold(localStorage.getItem(FOLD_KEY) === "1");
-  head.onclick = () => fold(!el.classList.contains("folded"));
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "sl-btn td-btn"; btn.title = "Today (T)"; btn.setAttribute("aria-label", "Today");
+  btn.innerHTML = SUN;
+  btn.addEventListener("click", () => (back.hidden ? open() : close()));
+  document.body.append(btn);
 
   const cards = CARDS.map(c => {
     const b = document.createElement("button");
@@ -225,13 +226,10 @@ export function mountToday(el, { open }) {
     b.style.setProperty("--c", `var(--${c.id}-logo)`);
     b.style.setProperty("--a", `var(--${c.id}-accent)`);
     b.innerHTML = `<span class="tl">${c.label}<i>.</i></span><span class="tm">…</span><span class="ts"></span>`;
+    b.onclick = () => { close(); openApp(c.id, c.result?.url); };
     row.append(b);
     return { ...c, el: b, result: undefined };
   });
-
-  function paintSummary() {
-    sum.textContent = cards.map(c => c.result?.short).filter(Boolean).join(" · ");
-  }
 
   let gen = 0;
   async function refresh() {
@@ -247,11 +245,19 @@ export function mountToday(el, { open }) {
       c.el.querySelector(".tm").textContent = r.main;
       const ts = c.el.querySelector(".ts");
       if (r.subHtml) ts.innerHTML = r.sub || ""; else ts.textContent = r.sub || "";
-      c.el.onclick = () => open(c.id, r.url);
-      paintSummary();
     }));
   }
-  for (const c of cards) c.el.onclick = () => open(c.id);
+
+  function open() { back.hidden = false; refresh(); }
+  function close() { back.hidden = true; }
+  back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  document.addEventListener("keydown", (e) => {
+    if (!back.hidden && e.key === "Escape") { e.preventDefault(); close(); return; }
+    if (!back.hidden || !enabled()) return;
+    if (e.target.closest?.("input, textarea, select, [contenteditable], dialog[open]") || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "t" || e.key === "T") { e.preventDefault(); open(); }
+  });
+  // Loaded once now, so the first open is quick.
   refresh();
-  return { refresh };
+  return { open, close, refresh };
 }
