@@ -216,6 +216,19 @@
     /* the bar is thin, so the hit area reaches well beyond it */
     .close::before { content: ""; position: absolute; inset: -14px -16px -14px -6px; }
 
+    /* while the handle is dragged up or down: the app it will switch to */
+    .switch-hint {
+      position: fixed; z-index: 12; top: 50%; left: calc(18px + env(safe-area-inset-left));
+      translate: 0 -50%; padding: .35rem .8rem; border-radius: 999px;
+      background: var(--surface); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.18);
+      font-family: var(--disp); font-style: var(--hub-logo-style, italic); font-weight: 600; font-size: 1.15rem;
+      color: var(--hint-logo); opacity: 0; pointer-events: none; transition: opacity .15s, translate .15s;
+    }
+    .switch-hint .dot { font-style: normal; color: var(--hint-accent); }
+    .switch-hint.on { opacity: 1; }
+    .switch-hint.up { translate: 0 calc(-50% - 44px); }
+    .switch-hint.down { translate: 0 calc(-50% + 44px); }
+
     /* an invisible strip down the left edge picks up the swipe back */
     .edge {
       position: fixed; z-index: 11; left: 0; top: 0; bottom: 0; width: 18px;
@@ -234,6 +247,7 @@
       <h1 class="title">lifeOS<span class="dot">.</span></h1>
       <p class="greet" id="greet"></p>
     </header>
+    <section id="today" aria-label="Today"></section>
     <div class="wheel-wrap">
       <div class="lens"></div>
       <div class="wheel" id="wheel" tabindex="0" role="listbox" aria-label="Apps"></div>
@@ -246,12 +260,15 @@
   </section>
   <div class="edge" id="edge"></div>
   <button class="close" id="close" aria-label="Back to lifeOS."></button>
+  <div class="switch-hint" id="switch-hint" aria-hidden="true"></div>
 
   <script type="module">
     // Search across every app (S, / or ⌘K), with results opening in their tab.
     import { mountSpotlight } from "/lifeos/spotlight.js?v=3";
-    // Quick add to food.'s shopping list (A), from beside search.
-    import { mountShopAdd } from "/lifeos/shopadd.js?v=1";
+    // Add anything (A), from beside search: tasks, shopping, wish. (capture.js).
+    import { mountCapture } from "/lifeos/capture.js?v=1";
+    // The today strip under the greeting.
+    import { mountToday } from "/lifeos/today.js?v=1";
     import { signOut } from "/lifeos/auth.js";
 
     // Signs this device out of every hub app (they share one sign-in), not
@@ -263,7 +280,13 @@
       go: (href) => window.lifeosOpenUrl?.(href) || false,
       enabled: () => !document.body.classList.contains('open'),
     });
-    mountShopAdd({ enabled: () => !document.body.classList.contains('open') });
+    mountCapture({
+      enabled: () => !document.body.classList.contains('open'),
+      added: (ids) => { ids.forEach(id => window.lifeosReload?.(id)); window.lifeosToday?.refresh(); },
+    });
+    window.lifeosToday = mountToday(document.getElementById('today'), {
+      open: (id, url) => (url ? window.lifeosOpenUrl?.(url) : window.lifeosOpen?.(id)),
+    });
   </script>
 
   <script>
@@ -396,6 +419,7 @@
       document.body.classList.remove('open');
       sheet.setAttribute('aria-hidden', 'true');
       document.title = 'lifeOS.';
+      window.lifeosToday?.refresh();
       setTimeout(() => {
         if (openId) return;
         for (const x of Object.values(frames)) x.classList.remove('on');
@@ -438,6 +462,13 @@
       return true;
     };
 
+    // Something was added to an app from the picker: an app kept loaded in
+    // the background reloads, so it shows it when opened.
+    window.lifeosReload = (id) => {
+      const f = frames[id];
+      if (f && openId !== id) f.src = f.src;
+    };
+
     // A tap on the handle is handled with the swipe below; this is for the keyboard.
     $('close').onclick = e => { if (e.detail === 0) back(); };
 
@@ -445,25 +476,47 @@
     // letting go past a third of the way (or with a flick) closes it.
     // The close handle sits on that edge too, so it swipes the same way, and
     // a tap on it (barely moving) closes straight away.
-    const edge = $('edge');
+    // Dragging the handle up or down instead switches to the app above or
+    // below it on the wheel, named beside the handle as you drag.
+    const edge = $('edge'), hint = $('switch-hint');
     let swipe = null;
+    const SWITCH_AT = 44;
+    const neighbour = dir => APPS[(APPS.findIndex(a => a.id === openId) + dir + n) % n];
     const startSwipe = e => {
-      swipe = { x: e.clientX, t: performance.now(), dx: 0, handle: e.currentTarget.id === 'close' };
+      swipe = { x: e.clientX, y: e.clientY, t: performance.now(), dx: 0, dy: 0, axis: null, handle: e.currentTarget.id === 'close' };
       e.currentTarget.setPointerCapture(e.pointerId);
-      sheet.classList.add('swiping');
     };
     const moveSwipe = e => {
       if (!swipe) return;
-      swipe.dx = Math.max(0, e.clientX - swipe.x);
-      sheet.style.transform = `translateX(${swipe.dx}px)`;
+      const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+      if (!swipe.axis && Math.hypot(dx, dy) > 8) {
+        swipe.axis = swipe.handle && Math.abs(dy) > Math.abs(dx) ? 'y' : 'x';
+        if (swipe.axis === 'x') sheet.classList.add('swiping');
+      }
+      if (swipe.axis === 'x') {
+        swipe.dx = Math.max(0, dx);
+        sheet.style.transform = `translateX(${swipe.dx}px)`;
+      } else if (swipe.axis === 'y') {
+        swipe.dy = dy;
+        const dir = dy < 0 ? 1 : -1, app = neighbour(dir);
+        hint.innerHTML = `${app.name}<span class="dot">.</span>`;
+        hint.style.setProperty('--hint-logo', `var(--${app.id}-logo)`);
+        hint.style.setProperty('--hint-accent', `var(--${app.id}-accent)`);
+        hint.className = `switch-hint ${dy < 0 ? 'up' : 'down'}${Math.abs(dy) > SWITCH_AT ? ' on' : ''}`;
+      }
     };
     function endSwipe(e) {
       if (!swipe) return;
-      const { dx, t, handle } = swipe;
+      const { dx, dy, t, handle, axis } = swipe;
       swipe = null;
+      hint.className = 'switch-hint';
+      if (axis === 'y') {
+        if (e.type === 'pointerup' && Math.abs(dy) > SWITCH_AT) window.lifeosOpen(neighbour(dy < 0 ? 1 : -1).id);
+        return;
+      }
       const fast = dx / (performance.now() - t) > 0.5;
       sheet.classList.remove('swiping');
-      if (handle && dx < 8 && e.type === 'pointerup') {
+      if (handle && !axis && e.type === 'pointerup') {
         sheet.style.transform = '';
         back();
         return;

@@ -18,6 +18,54 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<"
 const fold = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 // food. remembers a master item's tick under this key (see page.jsx).
 const checkKey = (name) => `${name}||||m`;
+// food.'s shopping list: its household, the master list, and what's ticked
+// off. add() puts an item on the list the way food.'s quick-add bar does (see
+// the top of this file), and takes a master item or a name: a name matching a
+// master item is that item, anything else goes on as a one-off. Resolves
+// { name, already } (already: it was on the list). Used by capture.js too.
+export function shoppingList() {
+  const s = { household: null, items: [], bought: new Set() };
+  s.load = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("Not signed in");
+    const p = await supabase.from("profiles").select("household_id").eq("id", user.id).single();
+    if (p.error) throw p.error;
+    s.household = p.data.household_id;
+    const [m, c] = await Promise.all([
+      supabase.from("master_items").select("id, name, category, active").eq("household_id", s.household),
+      supabase.from("shop_checked").select("item_key").eq("household_id", s.household).eq("checked", true),
+    ]);
+    if (m.error) throw m.error;
+    if (c.error) throw c.error;
+    s.items = m.data.map(x => ({ ...x, f: fold(x.name) })).sort((a, b) => a.name.localeCompare(b.name));
+    s.bought = new Set(c.data.map(x => x.item_key));
+  };
+  s.onList = (m) => m.active && !s.bought.has(checkKey(m.name));
+  s.find = (name) => s.items.find(m => m.f === fold(String(name).trim()));
+  s.add = async (what) => {
+    const m = typeof what === "string" ? s.find(what) : what;
+    if (!m) {
+      const name = String(what).trim();
+      const { error } = await supabase.from("shop_extras").insert({ id: crypto.randomUUID(), household_id: s.household, name, amount: "", unit: "" });
+      if (error) throw error;
+      return { name };
+    }
+    if (s.onList(m)) return { name: m.name, already: true };
+    if (!m.active) {
+      const { error } = await supabase.from("master_items").update({ active: true }).eq("id", m.id);
+      if (error) throw error;
+      m.active = true;
+    }
+    if (s.bought.has(checkKey(m.name))) {
+      const { error } = await supabase.from("shop_checked").upsert({ household_id: s.household, item_key: checkKey(m.name), checked: false });
+      if (error) throw error;
+      s.bought.delete(checkKey(m.name));
+    }
+    return { name: m.name };
+  };
+  return s;
+}
+
 const BASKET = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9h14l-1.5 10.5a1 1 0 0 1-1 .5h-9a1 1 0 0 1-1-.5z"/><path d="m9 9 3-5 3 5"/></svg>`;
 
 const CSS = `
@@ -50,39 +98,22 @@ export function mountShopAdd({ enabled = () => true } = {}) {
   btn.addEventListener("click", open);
   document.body.append(btn);
 
-  // ── Loading: the household, its master list, and what's ticked off ──
-  // Fetched fresh each time it opens, so changes made in food. show up.
-  let household = null, items = [], bought = new Set(), loadError = null, loading = null;
+  // ── Loading: fetched fresh each time it opens, so changes made in food. show up ──
+  const list = shoppingList();
+  let loadError = null, loading = null;
   const hint = `<span class="sl-hint">↑↓ to move · ↵ to add · esc to close</span>`;
   const say = (html) => { foot.innerHTML = html + hint; };
   function load() {
     loadError = null;
     say(`<span>Loading the master list…</span>`);
-    return loading = (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("Not signed in");
-        const p = await supabase.from("profiles").select("household_id").eq("id", user.id).single();
-        if (p.error) throw p.error;
-        household = p.data.household_id;
-        const [m, c] = await Promise.all([
-          supabase.from("master_items").select("id, name, category, active").eq("household_id", household),
-          supabase.from("shop_checked").select("item_key").eq("household_id", household).eq("checked", true),
-        ]);
-        if (m.error) throw m.error;
-        if (c.error) throw c.error;
-        items = m.data.map(x => ({ ...x, f: fold(x.name) })).sort((a, b) => a.name.localeCompare(b.name));
-        bought = new Set(c.data.map(x => x.item_key));
-        say(`<span>${items.length} on the master list · ${items.filter(onList).length} on the shopping list</span>`);
-      } catch (err) {
-        console.error("shopping list:", err);
-        loadError = err;
-        say(`<span class="err">Couldn’t load the master list${navigator.onLine ? "" : " (offline)"}</span>`);
-      }
-      run();
-    })();
+    return loading = list.load().then(() => {
+      say(`<span>${list.items.length} on the master list · ${list.items.filter(list.onList).length} on the shopping list</span>`);
+    }, (err) => {
+      console.error("shopping list:", err);
+      loadError = err;
+      say(`<span class="err">Couldn’t load the master list${navigator.onLine ? "" : " (offline)"}</span>`);
+    }).then(run);
   }
-  const onList = (m) => m.active && !bought.has(checkKey(m.name));
 
   // ── Matching: names starting with what's typed first, then containing it ──
   let opts = [], sel = 0;
@@ -91,13 +122,13 @@ export function mountShopAdd({ enabled = () => true } = {}) {
     opts = []; sel = 0;
     if (!t) { out.innerHTML = ""; return; }
     if (loadError) { out.innerHTML = `<p class="sl-empty">The master list didn’t load, so nothing can be added.</p>`; return; }
-    const hits = items.filter(m => m.f.includes(t))
+    const hits = list.items.filter(m => m.f.includes(t))
       .sort((a, b) => (a.f.startsWith(t) ? 0 : 1) - (b.f.startsWith(t) ? 0 : 1)).slice(0, 8);
     opts = hits.map(m => ({ m }));
-    if (household && !items.some(m => m.f === t)) opts.push({ oneOff: raw });
+    if (list.household && !list.find(raw)) opts.push({ oneOff: raw });
     if (!opts.length) { out.innerHTML = `<p class="sl-empty">Loading…</p>`; return; }
     out.innerHTML = opts.map((o, i) => `<button type="button" class="sl-hit sa-hit${i === 0 ? " sel" : ""}" data-i="${i}" role="option">${o.m
-      ? `<span class="sl-t">${esc(o.m.name)}</span><span class="sa-tag${onList(o.m) ? " on" : ""}">${onList(o.m) ? "on the list" : esc(o.m.category || "")}</span>`
+      ? `<span class="sl-t">${esc(o.m.name)}</span><span class="sa-tag${list.onList(o.m) ? " on" : ""}">${list.onList(o.m) ? "on the list" : esc(o.m.category || "")}</span>`
       : `<span class="sl-t">Add “${esc(o.oneOff)}” as a one-off</span><span class="sa-tag">not on the master list</span>`}</button>`).join("");
   }
   function select(i) {
@@ -110,25 +141,9 @@ export function mountShopAdd({ enabled = () => true } = {}) {
   // ── Adding ──
   async function add(o) {
     try {
-      if (o.oneOff) {
-        const { error } = await supabase.from("shop_extras").insert({ id: crypto.randomUUID(), household_id: household, name: o.oneOff, amount: "", unit: "" });
-        if (error) throw error;
-        done(o.oneOff);
-        return;
-      }
-      const m = o.m;
-      if (onList(m)) { say(`<span>${esc(m.name)} is already on the list</span>`); clear(); return; }
-      if (!m.active) {
-        const { error } = await supabase.from("master_items").update({ active: true }).eq("id", m.id);
-        if (error) throw error;
-        m.active = true;
-      }
-      if (bought.has(checkKey(m.name))) {
-        const { error } = await supabase.from("shop_checked").upsert({ household_id: household, item_key: checkKey(m.name), checked: false });
-        if (error) throw error;
-        bought.delete(checkKey(m.name));
-      }
-      done(m.name);
+      const r = await list.add(o.oneOff ?? o.m);
+      if (r.already) { say(`<span>${esc(r.name)} is already on the list</span>`); clear(); return; }
+      done(r.name);
     } catch (err) {
       console.error("shopping list add:", err);
       say(`<span class="err">Couldn’t add ${esc(o.oneOff || o.m.name)}${navigator.onLine ? "" : " (offline)"}</span>`);
