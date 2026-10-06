@@ -102,6 +102,8 @@
     }
     .sign-out:hover, .sign-out:focus-visible { opacity: 1; background: color-mix(in srgb, var(--text) 8%, transparent); outline: none; }
 
+    .foot-links { position: relative; display: flex; gap: .25rem; }
+
     /* two soft orbs that drift and take the colour of the app in the middle */
     .orb {
       position: absolute; border-radius: 50%;
@@ -259,7 +261,10 @@
       <div class="lens"></div>
       <div class="wheel" id="wheel" tabindex="0" role="listbox" aria-label="Apps"></div>
     </div>
-    <button class="sign-out" id="sign-out" type="button">sign out</button>
+    <div class="foot-links">
+      <button class="sign-out" id="connections" type="button">connections</button>
+      <button class="sign-out" id="sign-out" type="button">sign out</button>
+    </div>
   </div>
 
   <section class="sheet" id="sheet" aria-hidden="true">
@@ -275,7 +280,10 @@
     // Add anything (A), from beside search: tasks, shopping, wish. (capture.js).
     import { mountCapture } from "/lifeos/capture.js?v=3";
     // today. (T), beside add: what's on today in each app.
-    import { mountToday } from "/lifeos/today.js?v=2";
+    import { mountToday } from "/lifeos/today.js?v=3";
+    // Every sign-in and connection in one place, from the foot of the page.
+    import { mountConnections } from "/lifeos/connections.js?v=1";
+    import * as google from "/lifeos/google.js?v=1";
     import { signOut } from "/lifeos/auth.js";
 
     // Signs this device out of every hub app (they share one sign-in), not
@@ -299,10 +307,23 @@
       capture.open(params.get('add') || '');
       history.replaceState(history.state, '', location.pathname + location.hash);
     }
-    window.lifeosToday = mountToday({
+    // A change to a connection reloads the apps that use it.
+    const connections = mountConnections({
+      saved: () => { ['tasks', 'media', 'cal'].forEach(id => window.lifeosReload?.(id)); },
+    });
+    document.getElementById('connections').onclick = () => connections.open();
+    const today = window.lifeosToday = mountToday({
       enabled: () => !document.body.classList.contains('open'),
       open: (id, url) => (url ? window.lifeosOpenUrl?.(url) : window.lifeosOpen?.(id)),
+      setup: () => connections.open(),
     });
+    // Back from renewing Google's sign-in (google.js): carry on where it was.
+    // Otherwise today. opens by itself the first time each morning and evening,
+    // unless the page was opened to an app or to add something.
+    const reply = window.lifeosGoogleReply ? google.takeReply(window.lifeosGoogleReply) : null;
+    if (reply?.then === 'connections') connections.open();
+    else if (reply) today.open();
+    else if (!params.has('add') && !location.hash) today.autoOpen();
   </script>
 
   <script>
@@ -581,10 +602,17 @@
     // calendar. and tasks. sign in to Google through this whole page, since
     // Google won't show sign-in inside a frame. Google comes back here with
     // the reply in the hash, which is handed to the app that asked to finish
-    // signing in. tasks. marks its requests with a "tasks:" state; anything
-    // else is calendar.'s.
-    const googleReply = /(?:^#|&)(?:access_token|error)=/.test(location.hash) ? location.hash : '';
-    const replyFor = /^tasks:/.test(new URLSearchParams(googleReply.slice(1)).get('state') || '') ? 'tasks' : 'cal';
+    // signing in. tasks. marks its requests with a "tasks:" state, and lifeOS
+    // its own (renewing for today., google.js) with "lifeos:"; anything else
+    // is calendar.'s. lifeOS's own is left for the module script above.
+    let googleReply = /(?:^#|&)(?:access_token|error)=/.test(location.hash) ? location.hash : '';
+    const replyState = new URLSearchParams(googleReply.slice(1)).get('state') || '';
+    if (/^lifeos:/.test(replyState)) {
+      window.lifeosGoogleReply = googleReply;
+      googleReply = '';
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+    const replyFor = /^tasks:/.test(replyState) ? 'tasks' : 'cal';
     const start = googleReply ? APPS.find(x => x.id === replyFor) : APPS.find(x => x.id === location.hash.slice(1));
     requestAnimationFrame(() => {
       toApp(start ? APPS.indexOf(start) : 0);
