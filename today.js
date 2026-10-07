@@ -17,8 +17,8 @@
 
 import { supabase } from "./auth.js";
 import * as google from "./google.js?v=1";
-import * as todoist from "./shared/todoist.js?v=16";
-import * as hub from "./shared/hubtasks.js?v=1";
+import * as todoist from "./shared/todoist.js?v=17";
+import * as hub from "./shared/hubtasks.js?v=2";
 
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
 const pad = (n) => String(n).padStart(2, "0");

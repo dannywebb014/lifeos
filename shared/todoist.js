@@ -67,6 +67,9 @@ export async function loadTasks(projects) {
       // A due date can carry a time; only the day matters here.
       date: (t.due?.date || "").slice(0, 10) || null,
       recurring: Boolean(t.due?.is_recurring),
+      // Todoist's 4 is p1 (the most urgent) and 1 is no priority; the hub
+      // apps use 3 high, 2 medium, 1 low, 0 none.
+      priority: Math.max(0, (t.priority || 1) - 1),
       // Kept whole so a recurring task can be moved without losing its rule.
       due: t.due || null,
       spaceId: "todoist",
@@ -118,11 +121,15 @@ export async function moveTask(id, projectId) {
 export const renameTask = (id, text) =>
   call(`/tasks/${id}`, { method: "POST", body: JSON.stringify({ content: text }) });
 
-export const addTask = ({ text, date, projectId }) =>
+export const addTask = ({ text, date, projectId, priority = 0 }) =>
   call("/tasks", {
     method: "POST",
-    body: JSON.stringify({ content: text, ...(date ? { due_date: date } : {}), ...(projectId ? { project_id: projectId } : {}) }),
+    body: JSON.stringify({ content: text, ...(date ? { due_date: date } : {}), ...(projectId ? { project_id: projectId } : {}), ...(priority ? { priority: priority + 1 } : {}) }),
   });
+
+// 3 high, 2 medium, 1 low, 0 none → Todoist's p1, p2, p3, p4.
+export const setPriority = (id, priority) =>
+  call(`/tasks/${id}`, { method: "POST", body: JSON.stringify({ priority: priority + 1 }) });
 
 // Taking back a task just added (the undo in lifeOS's add box).
 export const deleteTask = (id) => call(`/tasks/${id}`, { method: "DELETE" });

@@ -15,7 +15,7 @@
 import { supabase } from "/lifeos/auth.js";
 
 const TABLE = "hub_tasks";
-const COLUMNS = "id,space,text,date,household_id,created_at";
+const COLUMNS = "id,space,text,date,priority,household_id,created_at";
 // The apps call the joint. space "todoist" (parse.js), from when only Todoist had it.
 const toDb = (spaceId) => (spaceId === "todoist" ? "joint" : spaceId);
 const fromDb = (space) => (space === "joint" ? "todoist" : space);
@@ -31,6 +31,7 @@ const toTask = (r) => ({
   text: r.text,
   date: r.date,
   recurring: false,
+  priority: r.priority || 0,
   spaceId: fromDb(r.space),
   builtin: true,
   shared: Boolean(r.household_id),
@@ -60,7 +61,7 @@ export async function loadTasks() {
   return check(await supabase.from(TABLE).select(COLUMNS).is("done_at", null).order("created_at")).map(toTask);
 }
 
-// [{ text, date, spaceId }] → the new tasks, in the same order.
+// [{ text, date, spaceId, priority? }] → the new tasks, in the same order.
 export async function addTasks(list) {
   if (!list.length) return [];
   const shareWith = list.some(t => t.spaceId === "todoist") ? await householdId() : null;
@@ -68,6 +69,7 @@ export async function addTasks(list) {
     text: t.text.trim(),
     date: t.date || null,
     space: toDb(t.spaceId),
+    priority: t.priority || 0,
     household_id: t.spaceId === "todoist" ? shareWith : null,
   }));
   return check(await supabase.from(TABLE).insert(rows).select(COLUMNS)).map(toTask);
@@ -86,7 +88,29 @@ export const reopenTask = (id) => update(id, { done_at: null });
 // Takes one ID or a list, so "move all to tomorrow" is one request.
 export const rescheduleTask = (ids, date) => update(ids, { date });
 export const renameTask = (id, text) => update(id, { text });
+export const setPriority = (id, priority) => update(id, { priority });
 export const deleteTask = async (id) => check(await supabase.from(TABLE).delete().eq("id", id));
+
+// ─── Priority for Craft tasks ────────────────────────────────────────
+// Priority is the traffic light: 0 none, 1 low (green), 2 medium (amber),
+// 3 high (red). Tasks here carry it themselves and Todoist has its own, but
+// Craft has none, so a Craft task's light is kept in lifeOS (task_priorities,
+// sql/task-priority.sql), private to whoever set it.
+export const craftKey = (spaceId, id) => `craft:${spaceId}:${id}`;
+
+// Map of craftKey → priority, for every Craft task given one.
+export async function loadCraftPriorities() {
+  const rows = check(await supabase.from("task_priorities").select("task_key,priority"));
+  return new Map(rows.map(r => [r.task_key, r.priority]));
+}
+
+export async function setCraftPriority(spaceId, id, priority) {
+  const key = craftKey(spaceId, id);
+  if (!priority) return check(await supabase.from("task_priorities").delete().eq("task_key", key));
+  const { data: { session } } = await supabase.auth.getSession();
+  return check(await supabase.from("task_priorities")
+    .upsert({ user_id: session?.user?.id, task_key: key, priority, updated_at: new Date().toISOString() }, { onConflict: "user_id,task_key" }));
+}
 
 // How many were ticked off between two Dates (for week.).
 export async function countDone(from, to) {

@@ -25,6 +25,8 @@
 //     blocks it out on the calendar. A time alone means today, or tomorrow
 //     once it has passed. "For 30 minutes" / "for an hour" after a time sets
 //     how long; without a time it is left in the task.
+//   - "High priority" (or "urgent", "red priority", "priority 1") makes it
+//     red; "medium" / "amber" amber; "low" / "green" green. The words go.
 
 export const SPACES = [
   { id: "my", label: "my space.", pattern: "my\\s*space|personal" },
@@ -77,6 +79,25 @@ function takeLength(text) {
 
 const hhmm = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
+// The traffic light: 3 high (red), 2 medium (amber), 1 low (green), 0 none.
+const PRIORITY_WORDS = [
+  [3, "high|top|urgent|red", "high|one|1"],
+  [2, "medium|med|mid|normal|amber|yellow|orange", "medium|two|2"],
+  [1, "low|green", "low|three|3"],
+];
+const LINK = "(?:[\\s,\\-–—]*(?:as|with|at|is)\\s+(?:a\\s+)?)?";
+export function takePriority(text) {
+  for (const [level, before, after] of PRIORITY_WORDS) {
+    const re = new RegExp(`${LINK}[\\s,\\-–—]*\\b(?:(?:${before})\\s+priority|priority\\s*(?:${after}))\\b`, "i");
+    const m = text.match(re);
+    if (m) return { text: text.slice(0, m.index) + text.slice(m.index + m[0].length), priority: level };
+  }
+  // "Urgent" on its own, at the start or the end.
+  const m = text.match(/^\s*urgent(?:ly)?\b[\s,:\-–—]*|[\s,\-–—]+urgent(?:ly)?\s*$/i);
+  if (m) return { text: text.slice(0, m.index) + text.slice(m.index + m[0].length), priority: 3 };
+  return { text, priority: 0 };
+}
+
 // chrono reads "for 30 mins" as "30 minutes from now", so a length is taken
 // out before it looks, and only kept as a length when a time was said.
 function takeDate(full, chrono, now) {
@@ -120,9 +141,10 @@ export function parseTasks(input, chrono, { now = new Date(), defaultSpace = SPA
       space = spaceFor(trail[1]);
       s = s.slice(0, trail.index);
     }
-    const { text, date, time, minutes } = takeDate(s, chrono, now);
+    const { text: plain, priority } = takePriority(s);
+    const { text, date, time, minutes } = takeDate(plain, chrono, now);
     const clean = tidy(text);
-    if (clean) tasks.push({ text: clean, space, date, time, minutes });
+    if (clean) tasks.push({ text: clean, space, date, time, minutes, priority });
   }
   return tasks;
 }

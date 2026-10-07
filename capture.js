@@ -20,9 +20,9 @@
 
 import { supabase } from "./auth.js";
 import { shoppingList } from "./shopadd.js?v=2";
-import { parseTasks, SPACES } from "./shared/parse.js?v=15";
-import * as todoist from "./shared/todoist.js?v=16";
-import * as hub from "./shared/hubtasks.js?v=1";
+import { parseTasks, SPACES } from "./shared/parse.js?v=16";
+import * as todoist from "./shared/todoist.js?v=17";
+import * as hub from "./shared/hubtasks.js?v=2";
 import * as speech from "./shared/speech.js?v=15";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -147,7 +147,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     if (kind === "shop") return s.names.map(n => n.on ? `<span class="on">${esc(n.name)} is on the list</span>` : `${esc(n.name)}${n.master ? "" : " (one-off)"}`).join(", ");
     if (kind === "wish") return s.person ? `for ${esc(s.person.name)}` : "my wishlist";
     const space = SPACES.find(x => x.id === s.space)?.label || s.space;
-    return [space, s.date && dayText(s.date), s.time && `${s.time}${s.minutes ? ` for ${s.minutes} min` : ""}`].filter(Boolean).map(esc).join(" · ");
+    return [space, s.date && dayText(s.date), s.time && `${s.time}${s.minutes ? ` for ${s.minutes} min` : ""}`, s.priority && `${["", "low", "medium", "high"][s.priority]} priority`].filter(Boolean).map(esc).join(" · ");
   }
   const title = (kind, s) => kind === "shop" ? s.names.map(n => n.name).join(", ") : kind === "wish" ? s.name : s.text;
 
@@ -239,7 +239,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     for (const [spaceId, group] of bySpace) {
       try {
         if (spaceId === "lifeos") {
-          const made = await hub.addTasks(group.map(l => ({ text: l.shape.text, date: l.shape.date, spaceId: l.shape.space })));
+          const made = await hub.addTasks(group.map(l => ({ text: l.shape.text, date: l.shape.date, spaceId: l.shape.space, priority: l.shape.priority })));
           group.forEach((l, i) => {
             const id = made[i]?.id;
             l.state = "ok";
@@ -253,7 +253,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
           if (!todoist.hasToken()) throw new Error("set up joint. in tasks.");
           const projects = await todoist.loadProjects();
           for (const l of group) {
-            const made = await todoist.addTask({ text: l.shape.text, date: l.shape.date, projectId: todoist.pickProject(l.shape.text, projects).project?.id });
+            const made = await todoist.addTask({ text: l.shape.text, date: l.shape.date, projectId: todoist.pickProject(l.shape.text, projects).project?.id, priority: l.shape.priority });
             l.state = "ok";
             l.undo = () => todoist.deleteTask(made.id);
             timed.push({ l, id: made?.id });

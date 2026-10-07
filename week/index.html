@@ -313,7 +313,7 @@
         } catch (err) { problems.push(err.message); }
       }));
       try {
-        const { countDone } = await import("/lifeos/shared/hubtasks.js?v=1");
+        const { countDone } = await import("/lifeos/shared/hubtasks.js?v=2");
         ownDone = await countDone(from, to);
       } catch (err) { problems.push(`lifeOS (${err.message})`); }
       const token = cleanKey(settings.todoist?.token);
