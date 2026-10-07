@@ -282,7 +282,7 @@
     // today. (T), beside add: what's on today in each app.
     import { mountToday } from "/lifeos/today.js?v=6";
     // Every sign-in and connection in one place, from the foot of the page.
-    import { mountConnections } from "/lifeos/connections.js?v=3";
+    import { mountConnections } from "/lifeos/connections.js?v=4";
     import * as google from "/lifeos/google.js?v=1";
     import { signOut } from "/lifeos/auth.js";
 
@@ -303,6 +303,22 @@
     // Shortcut (dictate, then open the link) adds from Siri or the lock screen.
     // It waits for Add, so nothing goes in unseen.
     const params = new URLSearchParams(location.search);
+    // lifeos/?app=cal opens that app (a tapped notification, when lifeOS
+    // wasn't open). When it was, the service worker sends a message instead.
+    if (params.has('app')) {
+      const id = params.get('app');
+      history.replaceState(history.state, '', location.pathname + location.hash);
+      setTimeout(() => window.lifeosOpen?.(id), 0);
+    }
+    navigator.serviceWorker?.addEventListener('message', (e) => { if (e.data?.lifeosOpen) window.lifeosOpen?.(e.data.lifeosOpen); });
+    // Keep the reminders before events up to date while lifeOS is open with
+    // Google connected (shared/reminders.js); at most every 5 minutes.
+    const syncReminders = () => {
+      if (google.isConnected()) import('/lifeos/shared/reminders.js?v=1')
+        .then(r => r.syncFromGoogle(google.auth().token)).catch(err => console.error('Reminders:', err));
+    };
+    syncReminders();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncReminders(); });
     if (params.has('add')) {
       capture.open(params.get('add') || '');
       history.replaceState(history.state, '', location.pathname + location.hash);
@@ -323,7 +339,7 @@
     const reply = window.lifeosGoogleReply ? google.takeReply(window.lifeosGoogleReply) : null;
     if (reply?.then === 'connections') connections.open();
     else if (reply) today.open();
-    else if (!params.has('add') && !location.hash) today.autoOpen();
+    else if (!params.has('add') && !params.has('app') && !location.hash) today.autoOpen();
   </script>
 
   <script>

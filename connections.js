@@ -17,6 +17,15 @@
 
 import { supabase } from "./auth.js";
 import * as google from "./google.js?v=1";
+import * as reminders from "./shared/reminders.js?v=1";
+
+// The public half of the key the reminder sender signs notifications with
+// (its private half is a Supabase secret).
+const PUSH_KEY = "BIMK6cot_9GttvYcav6jjEeF26i2CUCHX7Geg7HTVF6Y7cKuHAJ5o-GMKcC0Z6PlB2jI57VhVqNdQgiudwfHJXg";
+const keyBytes = (b64) => {
+  const raw = atob((b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+};
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const read = (k, fallback) => { try { return JSON.parse(localStorage.getItem(k)) ?? fallback; } catch { return fallback; } };
@@ -128,6 +137,78 @@ export function mountConnections({ saved = () => {} } = {}) {
       box.querySelector(".cn-note").textContent = user ? `${user.email}. The one sign-in every app shares.` : "";
       if (user && aal?.currentLevel === "aal2") authenticators(box);
     }).catch(() => status(box.querySelector(".cn-st"), { ok: false, text: "Couldn’t check" }));
+    return box;
+  }
+
+  // ── Notifications: a reminder before each event and time block ──
+  // Per device: each phone or computer turns them on for itself. On iPhone
+  // they only work in lifeOS opened from the home screen.
+  function notifyBox() {
+    const box = document.createElement("div");
+    box.className = "cn-box";
+    box.innerHTML = `<div class="cn-top"><b>Notifications</b><span class="cn-st">Checking…</span></div>
+      <div class="cn-note">A reminder ${reminders.LEAD_MINUTES} minutes before each calendar event and time block, on this device. Events are picked up whenever lifeOS or calendar. is open with Google connected.</div>
+      <div class="cn-row"></div>`;
+    const st = box.querySelector(".cn-st"), row = box.querySelector(".cn-row");
+    const button = (label, fn, main = false) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = `cn-b${main ? " main" : ""}`; b.textContent = label;
+      b.onclick = async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } };
+      return b;
+    };
+    async function paint() {
+      row.replaceChildren();
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+        status(st, { text: "Not available here" });
+        box.querySelector(".cn-note").textContent = "On iPhone, open lifeOS from its home-screen icon (iOS 16.4 or later) and turn them on there.";
+        return;
+      }
+      if (Notification.permission === "denied") {
+        status(st, { ok: false, text: "Blocked" });
+        box.querySelector(".cn-note").textContent = "Notifications are blocked for lifeOS. Allow them in Settings → Notifications → lifeOS., then come back here.";
+        return;
+      }
+      const reg = await navigator.serviceWorker.getRegistration("/lifeos/");
+      const sub = await reg?.pushManager.getSubscription();
+      if (sub) {
+        status(st, { ok: true, text: "On for this device" });
+        row.append(button("Send a test", async () => {
+          try { await reminders.sendTest(); status(st, { ok: true, text: "Test on its way (within a minute)" }); }
+          catch (err) { status(st, { ok: false, text: `Couldn’t send: ${err.message}` }); }
+        }), button("Turn off", async () => {
+          await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+          await sub.unsubscribe().catch(() => {});
+          paint();
+        }));
+      } else {
+        status(st, { text: "Off for this device" });
+        row.append(button("Turn on for this device", turnOn, true));
+      }
+    }
+    async function turnOn() {
+      // Asked from this tap, as iPhone requires.
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") { paint(); return; }
+      try {
+        const reg = await navigator.serviceWorker.register("/lifeos/push-sw.js", { scope: "/lifeos/" });
+        await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(PUSH_KEY) });
+        const j = sub.toJSON();
+        const { data: { user } } = await supabase.auth.getUser();
+        const { error } = await supabase.from("push_subscriptions").upsert({
+          user_id: user.id, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth,
+          device: /iPhone|iPad/.test(navigator.userAgent) ? "iPhone/iPad" : /Android/.test(navigator.userAgent) ? "Android" : /Mac/.test(navigator.userAgent) ? "Mac" : "Computer",
+        }, { onConflict: "endpoint" });
+        if (error) throw error;
+        // Start with today's events straight away.
+        if (google.isConnected()) reminders.syncFromGoogle(google.auth().token, { force: true }).catch(err => console.error("Reminders:", err));
+        paint();
+      } catch (err) {
+        console.error("Turning on notifications failed:", err);
+        status(st, { ok: false, text: `Couldn’t turn on: ${err.message}` });
+      }
+    }
+    paint().catch(err => status(st, { ok: false, text: err.message }));
     return box;
   }
 
@@ -311,7 +392,7 @@ export function mountConnections({ saved = () => {} } = {}) {
 
   function open() {
     dirty = false;
-    list.replaceChildren(lifeosBox(), googleBox(), ...SPACES.map(craftBox), todoistBox(), defaultBox());
+    list.replaceChildren(lifeosBox(), notifyBox(), googleBox(), ...SPACES.map(craftBox), todoistBox(), defaultBox());
     back.hidden = false;
   }
   function close() {
