@@ -172,13 +172,14 @@
     const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     const money = (n) => n == null || n === "" ? "" : `£${Number(n).toLocaleString("en-GB", { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
 
-    // Green is the thing I most want; the labels say so wherever a colour appears.
+    // Red is the thing I most want, matching the traffic light on tasks (red is
+    // high priority); the labels say so wherever a colour appears.
     const PRIORITY = [
-      { id: "green", label: "Really want", c: "var(--green)", cs: "var(--green-soft)" },
+      { id: "red", label: "Really want", c: "var(--red)", cs: "var(--red-soft)" },
       { id: "amber", label: "Would like", c: "var(--amber)", cs: "var(--amber-soft)" },
-      { id: "red", label: "Not fussed", c: "var(--red)", cs: "var(--red-soft)" },
+      { id: "green", label: "Not fussed", c: "var(--green)", cs: "var(--green-soft)" },
     ];
-    const RANK = { green: 0, amber: 1, red: 2 };
+    const RANK = { red: 0, amber: 1, green: 2 };
     const pri = (id) => PRIORITY.find(p => p.id === id);
     const STATUS_ME = [{ id: "open", label: "Want it" }, { id: "bought", label: "Got it" }];
     const STATUS_GIFT = [{ id: "open", label: "Idea" }, { id: "bought", label: "Bought" }, { id: "given", label: "Given" }];

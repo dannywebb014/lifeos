@@ -15,7 +15,7 @@ create table if not exists public.wish_items (
   name        text not null,
   url         text not null default '',
   price       numeric(10,2),
-  priority    text check (priority in ('green','amber','red')),         -- green: really want; amber: would like; red: not fussed
+  priority    text check (priority in ('green','amber','red')),         -- red: really want; amber: would like; green: not fussed (swapped 2026-10-07 by swap-priority.sql)
   status      text not null default 'open' check (status in ('open','bought','given')),
   notes       text not null default '',
   image_url   text not null default '',
