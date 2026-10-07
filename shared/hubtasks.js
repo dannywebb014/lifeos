@@ -13,9 +13,10 @@
 // { id, text, date, recurring, spaceId, where }, plus builtin: true.
 
 import { supabase } from "/lifeos/auth.js";
+import { nextDue, describe, withAnchor } from "./repeat.js?v=1";
 
 const TABLE = "hub_tasks";
-const COLUMNS = "id,space,text,date,priority,household_id,created_at";
+const COLUMNS = "id,space,text,date,priority,repeat,household_id,created_at";
 // The apps call the joint. space "todoist" (parse.js), from when only Todoist had it.
 const toDb = (spaceId) => (spaceId === "todoist" ? "joint" : spaceId);
 const fromDb = (space) => (space === "joint" ? "todoist" : space);
@@ -30,7 +31,9 @@ const toTask = (r) => ({
   id: r.id,
   text: r.text,
   date: r.date,
-  recurring: false,
+  recurring: Boolean(r.repeat),
+  repeat: r.repeat || null,
+  repeatText: describe(r.repeat),
   priority: r.priority || 0,
   spaceId: fromDb(r.space),
   builtin: true,
@@ -61,7 +64,7 @@ export async function loadTasks() {
   return check(await supabase.from(TABLE).select(COLUMNS).is("done_at", null).order("created_at")).map(toTask);
 }
 
-// [{ text, date, spaceId, priority? }] → the new tasks, in the same order.
+// [{ text, date, spaceId, priority?, repeat? }] → the new tasks, in the same order.
 export async function addTasks(list) {
   if (!list.length) return [];
   const shareWith = list.some(t => t.spaceId === "todoist") ? await householdId() : null;
@@ -70,6 +73,7 @@ export async function addTasks(list) {
     date: t.date || null,
     space: toDb(t.spaceId),
     priority: t.priority || 0,
+    repeat: t.repeat || null,
     household_id: t.spaceId === "todoist" ? shareWith : null,
   }));
   return check(await supabase.from(TABLE).insert(rows).select(COLUMNS)).map(toTask);
@@ -84,6 +88,35 @@ async function update(ids, values) {
 }
 
 export const closeTask = (id) => update(id, { done_at: new Date().toISOString() });
+
+// Ticking off: a repeating task moves to its next date and stays open; any
+// other closes. Every tick is logged (hub_task_done) for week.'s count.
+// Resolves { next } — the new date, or null when the task is closed.
+export async function completeTask(task) {
+  const next = task.repeat ? nextDue(task.repeat, task.date) : null;
+  if (next) await update(task.id, { date: next });
+  else await update(task.id, { done_at: new Date().toISOString() });
+  const { data: { session } } = await supabase.auth.getSession();
+  const { error } = await supabase.from("hub_task_done").insert({ task_id: task.id, user_id: session?.user?.id, household_id: task.shared ? await householdId() : null });
+  if (error) console.error("Logging the tick failed:", error.message);
+  return { next };
+}
+
+// A repeat set or changed on a task (null stops it). Its anchor is the task's
+// date, or the first day it lands on from today; resolves the task's date then.
+export async function setRepeat(task, rule) {
+  if (!rule) { await update(task.id, { repeat: null }); return { date: task.date, repeat: null }; }
+  const { rule: anchored, date } = withAnchor(rule, task.date);
+  await update(task.id, { repeat: anchored, date });
+  return { date, repeat: anchored };
+}
+
+// Into another space: my space., work. or joint. (shared with the household).
+export async function moveSpace(task, spaceId) {
+  const household = spaceId === "todoist" ? await householdId() : null;
+  await update(task.id, { space: toDb(spaceId), household_id: household });
+  return { shared: Boolean(household) };
+}
 export const reopenTask = (id) => update(id, { done_at: null });
 // Takes one ID or a list, so "move all to tomorrow" is one request.
 export const rescheduleTask = (ids, date) => update(ids, { date });
@@ -112,9 +145,9 @@ export async function setCraftPriority(spaceId, id, priority) {
     .upsert({ user_id: session?.user?.id, task_key: key, priority, updated_at: new Date().toISOString() }, { onConflict: "user_id,task_key" }));
 }
 
-// How many were ticked off between two Dates (for week.).
+// How many ticks between two Dates (for week.), repeating tasks included.
 export async function countDone(from, to) {
-  const { count, error } = await supabase.from(TABLE).select("id", { count: "exact", head: true })
+  const { count, error } = await supabase.from("hub_task_done").select("id", { count: "exact", head: true })
     .gte("done_at", from.toISOString()).lt("done_at", to.toISOString());
   if (error) throw new Error(error.message);
   return count || 0;

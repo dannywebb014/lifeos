@@ -197,8 +197,9 @@
       const key = Object.keys(localStorage).find(k => k.startsWith("train:"));
       const data = (await appState("train")) || (key && read(key));
       if (!data) return { big: "–", lines: ["No training saved yet."], muted: true };
-      const start = new Date(2026, 8, 21);                       // the plan's first Monday (train. START)
-      const planWeek = Math.floor((monday - start) / (7 * DAY)) + 1;
+      // The plan's first Monday, which train. saves with its data.
+      const start = data.plan?.start ? new Date(...data.plan.start.split("-").map((n, i) => Number(n) - (i === 1 ? 1 : 0))) : null;
+      const planWeek = start ? Math.floor((monday - start) / (7 * DAY)) + 1 : 0;
       const done = Object.entries(data.logs || {}).filter(([k, v]) => k.startsWith(`w${planWeek}-`) && v?.done).length;
       const weights = Object.entries(data.weights || {}).filter(([, v]) => v !== "" && !isNaN(parseFloat(v))).sort();
       const inside = weights.filter(([d]) => inWeek(d));
@@ -313,7 +314,7 @@
         } catch (err) { problems.push(err.message); }
       }));
       try {
-        const { countDone } = await import("/lifeos/shared/hubtasks.js?v=2");
+        const { countDone } = await import("/lifeos/shared/hubtasks.js?v=3");
         ownDone = await countDone(from, to);
       } catch (err) { problems.push(`lifeOS (${err.message})`); }
       const token = cleanKey(settings.todoist?.token);

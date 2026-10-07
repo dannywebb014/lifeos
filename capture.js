@@ -20,9 +20,9 @@
 
 import { supabase } from "./auth.js";
 import { shoppingList } from "./shopadd.js?v=2";
-import { parseTasks, SPACES } from "./shared/parse.js?v=16";
-import * as todoist from "./shared/todoist.js?v=17";
-import * as hub from "./shared/hubtasks.js?v=2";
+import { parseTasks, SPACES } from "./shared/parse.js?v=17";
+import * as todoist from "./shared/todoist.js?v=18";
+import * as hub from "./shared/hubtasks.js?v=3";
 import * as speech from "./shared/speech.js?v=15";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -30,8 +30,25 @@ const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null")
 const fold = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
 const PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
-const KINDS = ["task", "shop", "wish"];
-const KIND_LABEL = { task: "tasks.", shop: "shopping", wish: "wish." };
+const KINDS = ["task", "shop", "wish", "place", "media"];
+const KIND_LABEL = { task: "tasks.", shop: "shopping", wish: "wish.", place: "places.", media: "media." };
+// "place: Dishoom Shoreditch", "visit - Kew Gardens"
+const PLACE = /^(?:places?|visit|go\s+to)\s*[:\-–]\s*/i;
+// "watch: The Bear", "read: Piranesi", "listen to: Blue Rev"
+const MEDIA = /^(watch|read|listen(?:\s+to)?|film|movie|tv|show|book|album|music|media)\s*[:\-–]\s*/i;
+// Which media. collection a word means, by the collection's name.
+const MEDIA_COLLECTION = [
+  [/^(?:watch|film|movie)/i, /film|movie|cinema|watch/i],
+  [/^(?:tv|show)/i, /tv|show|series|watch/i],
+  [/^(?:read|book)/i, /book|read/i],
+  [/^(?:listen|album|music)/i, /album|music|listen|record/i],
+];
+function mediaCollection(word) {
+  const cols = read("media.cache")?.collections || [];
+  if (!cols.length) return null;
+  const want = MEDIA_COLLECTION.filter(([w]) => w.test(word)).map(([, c]) => c);
+  return want.map(re => cols.find(c => re.test(c.name || ""))).find(Boolean) || (/^media/i.test(word) ? cols[0] : null);
+}
 
 const CSS = `
   .cap-btn { right:66px; }
@@ -120,6 +137,8 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
   };
   function guess(raw) {
     const t = raw.trim();
+    if (PLACE.test(t)) return "place";
+    if (MEDIA.test(t)) return "media";
     if (/^(?:shop(?:ping)?\s*[:\-]|buy\s|get\s|pick\s+up\s|need\s(?!to\b))/i.test(t)) return "shop";
     if (/^(?:wish(?:list)?\s*[:\-]|(?:i\s+)?want\s(?!to\b))/i.test(t)) return "wish";
     if (personIn(t)) return "wish";
@@ -139,6 +158,12 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
       const name = (hit ? hit.name : t.replace(/^(?:wish(?:list)?\s*[:\-]\s*|(?:i\s+)?want\s+)/i, "")).trim();
       return { name: cap(name), person: hit?.person || null };
     }
+    if (kind === "place") return { name: cap(t.replace(PLACE, "").trim()) };
+    if (kind === "media") {
+      const m = t.match(MEDIA);
+      const word = m ? m[1] : "media";
+      return { title: cap((m ? t.slice(m[0].length) : t).trim()), col: mediaCollection(word) };
+    }
     if (!chrono) return { text: t, space: settings().defaultSpace || SPACES[0].id };
     const [task] = parseTasks(t, chrono, { defaultSpace: settings().defaultSpace || SPACES[0].id });
     return task || { text: t, space: settings().defaultSpace || SPACES[0].id };
@@ -146,10 +171,12 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
   function detail(kind, s) {
     if (kind === "shop") return s.names.map(n => n.on ? `<span class="on">${esc(n.name)} is on the list</span>` : `${esc(n.name)}${n.master ? "" : " (one-off)"}`).join(", ");
     if (kind === "wish") return s.person ? `for ${esc(s.person.name)}` : "my wishlist";
+    if (kind === "place") return "found on the map when you next open places.";
+    if (kind === "media") return s.col ? `to ${esc(s.col.name)}` : `<span class="on">open media. once, or start with watch:, read: or listen:</span>`;
     const space = SPACES.find(x => x.id === s.space)?.label || s.space;
-    return [space, s.date && dayText(s.date), s.time && `${s.time}${s.minutes ? ` for ${s.minutes} min` : ""}`, s.priority && `${["", "low", "medium", "high"][s.priority]} priority`].filter(Boolean).map(esc).join(" · ");
+    return [space, s.date && dayText(s.date), s.time && `${s.time}${s.minutes ? ` for ${s.minutes} min` : ""}`, s.priority && `${["", "low", "medium", "high"][s.priority]} priority`, s.repeat?.text].filter(Boolean).map(esc).join(" · ");
   }
-  const title = (kind, s) => kind === "shop" ? s.names.map(n => n.name).join(", ") : kind === "wish" ? s.name : s.text;
+  const title = (kind, s) => kind === "shop" ? s.names.map(n => n.name).join(", ") : kind === "wish" || kind === "place" ? s.name : kind === "media" ? s.title : s.text;
 
   function read_() {
     const old = new Map(lines.map(l => [l.raw, l]));
@@ -200,6 +227,12 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
           for (const n of l.shape.names) undos.push((await shop.add(n.master || n.name)).undo);
           l.undo = async () => { for (const u of undos.reverse()) await u(); };
           touched.add("food");
+        } else if (l.kind === "place") {
+          l.undo = await holdPlace(l.shape.name);
+          touched.add("places");
+        } else if (l.kind === "media") {
+          l.undo = await addMedia(l.shape);
+          touched.add("media");
         } else {
           const { data: { user } } = await supabase.auth.getUser();
           const { data, error } = await supabase.from("wish_items").insert({ name: l.shape.name, user_id: user.id, person_id: l.shape.person?.id || null, status: "open" }).select("id").single();
@@ -239,7 +272,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     for (const [spaceId, group] of bySpace) {
       try {
         if (spaceId === "lifeos") {
-          const made = await hub.addTasks(group.map(l => ({ text: l.shape.text, date: l.shape.date, spaceId: l.shape.space, priority: l.shape.priority })));
+          const made = await hub.addTasks(group.map(l => ({ text: l.shape.text, date: l.shape.date, spaceId: l.shape.space, priority: l.shape.priority, repeat: l.shape.repeat })));
           group.forEach((l, i) => {
             const id = made[i]?.id;
             l.state = "ok";
@@ -253,7 +286,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
           if (!todoist.hasToken()) throw new Error("set up joint. in tasks.");
           const projects = await todoist.loadProjects();
           for (const l of group) {
-            const made = await todoist.addTask({ text: l.shape.text, date: l.shape.date, projectId: todoist.pickProject(l.shape.text, projects).project?.id, priority: l.shape.priority });
+            const made = await todoist.addTask({ text: l.shape.text, date: l.shape.date, projectId: todoist.pickProject(l.shape.text, projects).project?.id, priority: l.shape.priority, repeatText: l.shape.repeat?.text });
             l.state = "ok";
             l.undo = () => todoist.deleteTask(made.id);
             timed.push({ l, id: made?.id });
@@ -326,6 +359,36 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
       q.focus();
     };
     undoTimer = setTimeout(() => { undoBtn.hidden = true; }, 8000);
+  }
+
+  // ── places.: held in app_state ("places-inbox") until places. opens, as a
+  // place needs a spot on the map that only its Google search can give ──
+  async function inbox(change) {
+    const { data: { user } } = await supabase.auth.getUser();
+    const got = await supabase.from("app_state").select("data").eq("app", "places-inbox").maybeSingle();
+    if (got.error) throw got.error;
+    const data = { items: [], ...(got.data?.data || {}) };
+    change(data);
+    const put = await supabase.from("app_state").upsert({ user_id: user.id, app: "places-inbox", data, updated_at: new Date().toISOString() }, { onConflict: "user_id,app" });
+    if (put.error) throw put.error;
+  }
+  async function holdPlace(name) {
+    const id = crypto.randomUUID();
+    await inbox(d => { d.items.push({ id, name, at: new Date().toISOString() }); });
+    return () => inbox(d => { d.items = d.items.filter(i => i.id !== id); });
+  }
+
+  // ── media.: straight into the Craft collection, with media.'s own code ──
+  async function addMedia({ title, col }) {
+    if (!col) throw new Error("no media. collection");
+    const C = await import("/mediahub/craft.js");
+    const own = read("media.settings")?.own;
+    const conns = C.connections(own);
+    const conn = conns.find(c => c.id === col.connId) || conns[0];
+    if (!conn) throw new Error("set up Craft in connections.");
+    const res = await C.addItem(conn, col.id, title, {}, [], col.schema?.props);
+    const id = res?.items?.[0]?.id;
+    return id ? () => C.deleteItem(conn, col.id, id) : null;
   }
 
   // ── Craft, with the connections saved in tasks. on this device ──

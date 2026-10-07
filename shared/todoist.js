@@ -67,6 +67,7 @@ export async function loadTasks(projects) {
       // A due date can carry a time; only the day matters here.
       date: (t.due?.date || "").slice(0, 10) || null,
       recurring: Boolean(t.due?.is_recurring),
+      repeatText: t.due?.is_recurring ? t.due.string || "" : "",
       // Todoist's 4 is p1 (the most urgent) and 1 is no priority; the hub
       // apps use 3 high, 2 medium, 1 low, 0 none.
       priority: Math.max(0, (t.priority || 1) - 1),
@@ -121,10 +122,27 @@ export async function moveTask(id, projectId) {
 export const renameTask = (id, text) =>
   call(`/tasks/${id}`, { method: "POST", body: JSON.stringify({ content: text }) });
 
-export const addTask = ({ text, date, projectId, priority = 0 }) =>
-  call("/tasks", {
+// A repeat goes to Todoist in words ("every monday"), which it reads itself.
+// If it can't read them, the task goes in with just its date.
+export async function addTask({ text, date, projectId, priority = 0, repeatText = "" }) {
+  const base = { content: text, ...(projectId ? { project_id: projectId } : {}), ...(priority ? { priority: priority + 1 } : {}) };
+  if (repeatText) {
+    try {
+      return await call("/tasks", { method: "POST", body: JSON.stringify({ ...base, due_string: repeatText + (date ? ` starting ${date}` : "") }) });
+    } catch (err) {
+      if (err.status !== 400) throw err;
+      console.warn("Todoist couldn't read the repeat:", repeatText);
+    }
+  }
+  return call("/tasks", { method: "POST", body: JSON.stringify({ ...base, ...(date ? { due_date: date } : {}) }) });
+}
+
+// Sets (or, with no words, stops) a Todoist task's repeat, keeping its date.
+export const setRepeat = (task, repeatText) =>
+  call(`/tasks/${task.id}`, {
     method: "POST",
-    body: JSON.stringify({ content: text, ...(date ? { due_date: date } : {}), ...(projectId ? { project_id: projectId } : {}), ...(priority ? { priority: priority + 1 } : {}) }),
+    body: JSON.stringify(repeatText ? { due_string: repeatText + (task.date ? ` starting ${task.date}` : "") }
+      : task.date ? { due_date: task.date } : { due_string: "no date" }),
   });
 
 // 3 high, 2 medium, 1 low, 0 none → Todoist's p1, p2, p3, p4.

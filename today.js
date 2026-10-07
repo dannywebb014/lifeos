@@ -17,8 +17,8 @@
 
 import { supabase } from "./auth.js";
 import * as google from "./google.js?v=1";
-import * as todoist from "./shared/todoist.js?v=17";
-import * as hub from "./shared/hubtasks.js?v=2";
+import * as todoist from "./shared/todoist.js?v=18";
+import * as hub from "./shared/hubtasks.js?v=3";
 
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
 const pad = (n) => String(n).padStart(2, "0");
@@ -65,17 +65,19 @@ let leftovers = [];   // { spaceId, id, text, todoist?, builtin? }
 async function tasks({ day, tomorrow }) {
   const settings = read("tasks.settings") || {};
   const today = isoDay(new Date()), shown = isoDay(day);
-  let due = 0, late = 0, any = false;
+  let due = 0, late = 0, high = 0, any = false;
   const found = [];
-  const seenTask = (spaceId, id, text, date, todo, builtin = false) => {
+  // Red (high priority) ones due on the day shown or before are counted too.
+  const seenTask = (spaceId, id, text, date, todo, builtin = false, priority = 0) => {
     if (!date) return;
     if (date === shown) due++;
+    if (priority === 3 && (date === shown || (date <= today && (tomorrow || date < today)))) high++;
     if (date <= today && (tomorrow || date < today)) { late++; found.push({ spaceId, id, text, todoist: todo, builtin }); }
   };
   // Tasks kept in lifeOS, which everyone signed in has.
   const builtin = hub.loadTasks().then(list => {
     if (list.length) any = true;
-    for (const t of list) seenTask(t.spaceId, t.id, t.text, t.date, undefined, true);
+    for (const t of list) seenTask(t.spaceId, t.id, t.text, t.date, undefined, true, t.priority);
   });
   await Promise.all(Object.entries(settings.spaces || {}).filter(([, s]) => s?.url).map(async ([spaceId, s]) => {
     any = true;
@@ -101,7 +103,7 @@ async function tasks({ day, tomorrow }) {
     const res = await fetch("https://api.todoist.com/api/v1/tasks?limit=200", { headers: { Authorization: `Bearer ${cleanKey(settings.todoist.token)}` } });
     if (!res.ok) throw new Error(`Todoist ${res.status}`);
     const body = await res.json();
-    for (const t of body.results || body.items || []) seenTask("todoist", String(t.id), t.content, t.due?.date?.slice(0, 10), { id: String(t.id), due: t.due });
+    for (const t of body.results || body.items || []) seenTask("todoist", String(t.id), t.content, t.due?.date?.slice(0, 10), { id: String(t.id), due: t.due }, false, Math.max(0, (t.priority || 1) - 1));
   }
   await builtin;
   leftovers = tomorrow ? found : [];
@@ -114,9 +116,10 @@ async function tasks({ day, tomorrow }) {
     };
   }
   if (!due && !late) return { main: "All clear", sub: "nothing due today" };
+  const red = high ? ` · <span class="late">${high} high</span>` : "";
   return {
     main: `${due + late} to do`,
-    sub: late ? `<span class="late">${late} overdue</span>` : "all due today",
+    sub: (late ? `<span class="late">${late} overdue</span>` : "all due today") + red,
     subHtml: true,
   };
 }
@@ -202,32 +205,28 @@ async function dinner({ day }) {
   return { main: r.data?.name || "A recipe", sub: data.length > 1 ? `dinner · +${data.length - 1} more` : "dinner", url: `${BASE}/foodhub/?recipe=${row.recipe_id}` };
 }
 
-// ── train.: the day's session in the half marathon plan ──
-// A copy of train.'s weekly schedule (fitnesshub index.html, schedFor): change
-// both together. Monday and Friday are rest days.
-const PLAN_START = new Date(2026, 8, 21), PLAN_WEEKS = 13;
-function sessionFor(week, offset) {
-  if (week === PLAN_WEEKS) return { 1: ["tue", "Race-week upper"], 3: ["thu", "Easy run"], 6: ["sun", "Half marathon 🏁"] }[offset];
-  return {
-    1: ["tue", "Strength A"], 2: ["wed", "Strength B"], 3: ["thu", "Football or run"],
-    5: week % 2 === 0 ? ["sat", "Easy run"] : ["sat", "Strength C"], 6: ["sun", "Long run"],
-  }[offset];
-}
+// ── train.: the day's session in the training plan ──
+// train. saves its plan with its data (app_state "train", data.plan:
+// { start, weeks: [[{ key, offset, title }]] }), so nothing is copied here.
+// A day with no session in the plan is a rest day.
 async function appState(app) {
   const { data, error } = await supabase.from("app_state").select("data").eq("app", app).maybeSingle();
   if (error) console.warn("app_state:", error.message);
   return data?.data || null;
 }
 async function training({ day }) {
-  const days = Math.round((day - PLAN_START) / 86400000);
-  const week = Math.floor(days / 7) + 1;
-  if (days < 0 || week > PLAN_WEEKS) return null;
-  const s = sessionFor(week, days % 7);
-  if (!s) return { main: "Rest day", sub: `week ${week}`, muted: true };
   const localKey = Object.keys(localStorage).find(k => k.startsWith("train:"));
   const data = (await appState("train")) || (localKey && read(localKey)) || {};
-  const done = Boolean(data.logs?.[`w${week}-${s[0]}`]?.done);
-  return { main: `${done ? "✓ " : ""}${s[1]}`, sub: done ? "done" : `week ${week}`, done };
+  const plan = data.plan;
+  if (!plan?.start || !plan.weeks?.length) return null;
+  const [y, m, d] = plan.start.split("-").map(Number);
+  const days = Math.round((day - new Date(y, m - 1, d)) / 86400000);
+  const week = Math.floor(days / 7) + 1;
+  if (days < 0 || week > plan.weeks.length) return null;
+  const s = plan.weeks[week - 1].find(x => x.offset === days % 7);
+  if (!s) return { main: "Rest day", sub: `week ${week}`, muted: true };
+  const done = Boolean(data.logs?.[`w${week}-${s.key}`]?.done);
+  return { main: `${done ? "✓ " : ""}${s.title}`, sub: done ? "done" : `week ${week}`, done };
 }
 
 // ── breathe.: today's practice and the run of days (tomorrow too: an evening nudge) ──

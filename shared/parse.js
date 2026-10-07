@@ -27,6 +27,11 @@
 //     how long; without a time it is left in the task.
 //   - "High priority" (or "urgent", "red priority", "priority 1") makes it
 //     red; "medium" / "amber" amber; "low" / "green" green. The words go.
+//   - "Every Monday", "weekdays", "monthly on the 1st", "first Friday of the
+//     month" … make it repeat (repeat.js). Without a date it starts on the
+//     first day the repeat lands on.
+
+import { parseRepeat, withAnchor } from "./repeat.js?v=1";
 
 export const SPACES = [
   { id: "my", label: "my space.", pattern: "my\\s*space|personal" },
@@ -142,9 +147,12 @@ export function parseTasks(input, chrono, { now = new Date(), defaultSpace = SPA
       s = s.slice(0, trail.index);
     }
     const { text: plain, priority } = takePriority(s);
-    const { text, date, time, minutes } = takeDate(plain, chrono, now);
+    const { text: once, repeat: said } = parseRepeat(plain);
+    let { text, date, time, minutes } = takeDate(once, chrono, now);
+    let repeat = null;
+    if (said) ({ rule: repeat, date } = withAnchor(said, date, isoDate(now)));
     const clean = tidy(text);
-    if (clean) tasks.push({ text: clean, space, date, time, minutes, priority });
+    if (clean) tasks.push({ text: clean, space, date, time, minutes, priority, repeat });
   }
   return tasks;
 }

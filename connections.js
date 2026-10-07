@@ -87,7 +87,8 @@ export function mountConnections({ saved = () => {} } = {}) {
   // ── Checks: each resolves { ok, text } ──
   async function checkCraft(id) {
     const s = tasksSettings().spaces?.[id];
-    if (!s?.url) return { text: "Not set up" };
+    // No connection is fine: the space keeps its tasks in lifeOS (shared/hubtasks.js).
+    if (!s?.url) return { ok: true, text: "Not connected · tasks kept in lifeOS" };
     const headers = { Accept: "application/json", ...(cleanKey(s.key) ? { Authorization: `Bearer ${cleanKey(s.key)}` } : {}) };
     try {
       const res = await fetch(`${craftBase(s.url)}/connection`, { headers });
@@ -100,7 +101,7 @@ export function mountConnections({ saved = () => {} } = {}) {
   }
   async function checkTodoist() {
     const t = cleanKey(tasksSettings().todoist?.token);
-    if (!t) return { text: "Not set up" };
+    if (!t) return { ok: true, text: "Not connected · tasks kept in lifeOS, shared with your household" };
     try {
       const res = await fetch("https://api.todoist.com/api/v1/projects?limit=1", { headers: { Authorization: `Bearer ${t}` } });
       return res.ok ? { ok: true, text: "Connected" } : { ok: false, text: res.status === 401 || res.status === 403 ? "Token refused" : `Todoist ${res.status}` };
