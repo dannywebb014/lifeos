@@ -90,9 +90,11 @@
       display: flex; flex-direction: column; align-items: center;
       padding: calc(2rem + env(safe-area-inset-top)) 1rem calc(1.5rem + env(safe-area-inset-bottom));
       background-image: var(--noise);
-      transition: transform .45s cubic-bezier(.2,.8,.2,1), filter .45s;
+      transition: transform .3s cubic-bezier(.2,.8,.2,1), opacity .3s;
     }
-    body.open .home { transform: scale(.94); filter: blur(6px); }
+    /* Shrinks and dims behind an app. (A blur here was the costliest thing on
+       screen to animate on iPhone, and made opening stutter.) */
+    body.open .home { transform: scale(.95); opacity: .6; }
 
     /* signs this device out of every hub app; quiet, at the foot of the page */
     .sign-out {
@@ -179,12 +181,12 @@
       background: var(--bg);
       clip-path: circle(0 at 50% 50%);
       visibility: hidden;
-      transition: clip-path .5s cubic-bezier(.2,.8,.2,1), visibility 0s .5s;
+      transition: clip-path .32s cubic-bezier(.2,.8,.2,1), visibility 0s .32s;
     }
     body.open .sheet {
       clip-path: circle(150vmax at 50% 50%);
       visibility: visible;
-      transition: clip-path .5s cubic-bezier(.2,.8,.2,1), visibility 0s;
+      transition: clip-path .32s cubic-bezier(.2,.8,.2,1), visibility 0s;
     }
     .loading {
       position: absolute; inset: 0; display: grid; place-items: center;
@@ -197,7 +199,7 @@
       position: absolute; inset: 0; width: 100%; height: 100%;
       border: 0; background: var(--bg);
       visibility: hidden; opacity: 0;
-      transition: opacity .25s;
+      transition: opacity .15s;
     }
     iframe.on { visibility: visible; }
     iframe.on.ready { opacity: 1; }
@@ -460,6 +462,8 @@
       loading.innerHTML = `${app.name}<span class="dot">.</span>`;
       const f = frameFor(app, hash);
       for (const x of Object.values(frames)) x.classList.toggle('on', x === f);
+      // A frame loaded ahead of time learns it's now on screen.
+      try { f.contentWindow?.postMessage({ lifeosShown: true }, location.origin); } catch { /* not loaded yet */ }
       document.body.classList.add('open');
       sheet.setAttribute('aria-hidden', 'false');
       document.title = `${app.name}. · lifeOS.`;
@@ -640,6 +644,19 @@
         wheel.focus({ preventScroll: true });
       }
     });
+
+    // tasks. and food. are the likeliest first taps, so they load quietly a
+    // moment after the picker appears and are ready when tapped (frames stay
+    // hidden until opened). Skipped on a connection set to save data.
+    setTimeout(() => {
+      if (navigator.connection?.saveData) return;
+      for (const id of ['tasks', 'food']) {
+        const app = APPS.find(x => x.id === id);
+        // ?preload: tasks. holds back anything that would take over the page
+        // (a trip to Google) until it's opened, which open() tells it.
+        if (app && !frames[id]) frameFor(app, '', app.url + '?preload');
+      }
+    }, 1200);
   </script>
   <script>
     // Opens fast and works with no signal (push-sw.js keeps lifeOS's files here, and shows notifications).
