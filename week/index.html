@@ -409,5 +409,9 @@
     paintRange();
     await Promise.all([renderCards(), loadReview(), loadPast()]);
   </script>
+  <script>
+    // Opens fast and works with no signal (push-sw.js keeps lifeOS's files here, and shows notifications).
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/lifeos/push-sw.js", { scope: "/lifeos/" }).catch(err => console.warn("Offline copy:", err));
+  </script>
 </body>
 </html>
