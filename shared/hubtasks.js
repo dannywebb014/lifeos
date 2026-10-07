@@ -91,15 +91,31 @@ export const closeTask = (id) => update(id, { done_at: new Date().toISOString() 
 
 // Ticking off: a repeating task moves to its next date and stays open; any
 // other closes. Every tick is logged (hub_task_done) for week.'s count.
-// Resolves { next } — the new date, or null when the task is closed.
+// Resolves { next, logId }: next is the new date, or null when it closed.
 export async function completeTask(task) {
   const next = task.repeat ? nextDue(task.repeat, task.date) : null;
   if (next) await update(task.id, { date: next });
   else await update(task.id, { done_at: new Date().toISOString() });
   const { data: { session } } = await supabase.auth.getSession();
-  const { error } = await supabase.from("hub_task_done").insert({ task_id: task.id, user_id: session?.user?.id, household_id: task.shared ? await householdId() : null });
+  const { data, error } = await supabase.from("hub_task_done")
+    .insert({ task_id: task.id, user_id: session?.user?.id, household_id: task.shared ? await householdId() : null })
+    .select("id").single();
   if (error) console.error("Logging the tick failed:", error.message);
-  return { next };
+  return { next, logId: data?.id || null };
+}
+
+// Undo for completeTask: back to the date it had (a repeating one) or open
+// again, and the tick taken out of the log.
+export async function undoComplete(task, { prevDate, next, logId }) {
+  if (next) await update(task.id, { date: prevDate });
+  else await update(task.id, { done_at: null });
+  if (logId) await supabase.from("hub_task_done").delete().eq("id", logId);
+}
+
+// The signed-in person's ID, for keeping a copy of their list on this device.
+export async function userId() {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user?.id || null;
 }
 
 // A repeat set or changed on a task (null stops it). Its anchor is the task's

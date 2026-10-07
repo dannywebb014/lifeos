@@ -79,6 +79,7 @@ export async function loadTasks(projects) {
 }
 
 export const closeTask = (id) => call(`/tasks/${id}/close`, { method: "POST" });
+export const reopenTask = (id) => call(`/tasks/${id}/reopen`, { method: "POST" });
 
 // A plain due_date replaces the whole due object, which wipes a recurring
 // task's rule ("every Monday"). For those, send the full due object through

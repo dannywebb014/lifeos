@@ -21,8 +21,8 @@
 import { supabase } from "./auth.js";
 import { shoppingList } from "./shopadd.js?v=2";
 import { parseTasks, SPACES } from "./shared/parse.js?v=17";
-import * as todoist from "./shared/todoist.js?v=18";
-import * as hub from "./shared/hubtasks.js?v=3";
+import * as todoist from "./shared/todoist.js?v=19";
+import * as hub from "./shared/hubtasks.js?v=4";
 import * as speech from "./shared/speech.js?v=15";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
