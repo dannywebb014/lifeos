@@ -60,6 +60,15 @@ const CSS = `
   .cn-more { border:0; background:none; color:var(--sl-muted); font:inherit; font-size:.8rem; text-decoration:underline; cursor:pointer; padding:0; margin-top:6px; }
   .cn-foot { display:flex; justify-content:flex-end; margin-top:6px; }
   .cn-auths { margin-top:8px; display:grid; gap:6px; }
+  .cn-switch { position:relative; flex-shrink:0; width:46px; height:28px; border-radius:14px; border:none; padding:0; cursor:pointer;
+    background:var(--sl-line); transition:background .2s; }
+  .cn-switch::after { content:""; position:absolute; top:3px; left:3px; width:22px; height:22px; border-radius:50%; background:#fff;
+    box-shadow:0 1px 3px rgba(0,0,0,.25); transition:transform .2s; }
+  .cn-switch[aria-checked=true] { background:#4a8a4a; }
+  .cn-switch[aria-checked=true]::after { transform:translateX(18px); }
+  .cn-switch:disabled { opacity:.5; cursor:wait; }
+  .cn-switch:focus-visible { outline:2px solid var(--life-accent); outline-offset:2px; }
+  @media (prefers-reduced-motion: reduce) { .cn-switch, .cn-switch::after { transition:none; } }
   .cn-auth { display:flex; align-items:center; gap:8px; font-size:.88rem; }
   .cn-auth span { flex:1; min-width:0; overflow-wrap:anywhere; }
   .cn-auth small { color:var(--sl-muted); }
@@ -146,10 +155,19 @@ export function mountConnections({ saved = () => {} } = {}) {
   function notifyBox() {
     const box = document.createElement("div");
     box.className = "cn-box";
-    box.innerHTML = `<div class="cn-top"><b>Notifications</b><span class="cn-st">Checking…</span></div>
+    box.innerHTML = `<div class="cn-top"><b>Notifications</b><span class="cn-st">Checking…</span>
+        <button type="button" class="cn-switch" role="switch" aria-checked="false" aria-label="Notifications on this device" hidden></button></div>
       <div class="cn-note">A reminder ${reminders.LEAD_MINUTES} minutes before each calendar event and time block, on this device. Events are picked up whenever lifeOS or calendar. is open with Google connected.</div>
       <div class="cn-row"></div>`;
     const st = box.querySelector(".cn-st"), row = box.querySelector(".cn-row");
+    // On and off for this device. Off forgets the device; on again doesn't ask
+    // for permission a second time.
+    const sw = box.querySelector(".cn-switch");
+    sw.onclick = async () => {
+      sw.disabled = true;
+      try { await (sw.getAttribute("aria-checked") === "true" ? turnOff() : turnOn()); }
+      finally { sw.disabled = false; }
+    };
     const button = (label, fn, main = false) => {
       const b = document.createElement("button");
       b.type = "button"; b.className = `cn-b${main ? " main" : ""}`; b.textContent = label;
@@ -158,6 +176,7 @@ export function mountConnections({ saved = () => {} } = {}) {
     };
     async function paint() {
       row.replaceChildren();
+      sw.hidden = true;
       if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
         status(st, { text: "Not available here" });
         box.querySelector(".cn-note").textContent = "On iPhone, open lifeOS from its home-screen icon (iOS 16.4 or later) and turn them on there.";
@@ -168,22 +187,28 @@ export function mountConnections({ saved = () => {} } = {}) {
         box.querySelector(".cn-note").textContent = "Notifications are blocked for lifeOS. Allow them in Settings → Notifications → lifeOS., then come back here.";
         return;
       }
-      const reg = await navigator.serviceWorker.getRegistration("/lifeos/");
-      const sub = await reg?.pushManager.getSubscription();
+      const sub = await currentSub();
+      sw.hidden = false;
+      sw.setAttribute("aria-checked", String(Boolean(sub)));
       if (sub) {
-        status(st, { ok: true, text: "On for this device" });
+        status(st, { ok: true, text: "On" });
         row.append(button("Send a test", async () => {
           try { await reminders.sendTest(); status(st, { ok: true, text: "Test on its way (within a minute)" }); }
           catch (err) { status(st, { ok: false, text: `Couldn’t send: ${err.message}` }); }
-        }), button("Turn off", async () => {
-          await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
-          await sub.unsubscribe().catch(() => {});
-          paint();
         }));
       } else {
-        status(st, { text: "Off for this device" });
-        row.append(button("Turn on for this device", turnOn, true));
+        status(st, { text: "Off" });
       }
+    }
+    const currentSub = async () => (await navigator.serviceWorker.getRegistration("/lifeos/"))?.pushManager.getSubscription();
+    async function turnOff() {
+      const sub = await currentSub();
+      if (sub) {
+        const { error } = await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+        if (error) { status(st, { ok: false, text: `Couldn’t turn off: ${error.message}` }); return; }
+        await sub.unsubscribe().catch(() => {});
+      }
+      paint();
     }
     async function turnOn() {
       // Asked from this tap, as iPhone requires.
