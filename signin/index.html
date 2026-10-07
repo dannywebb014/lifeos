@@ -131,7 +131,8 @@
     const $ = (id) => document.getElementById(id);
     const next = safeNext(new URLSearchParams(location.search).get("next"));
     const steps = ["password-step", "enrol-step", "code-step"];
-    let factorId = null;
+    let factorId = null;      // the authenticator being set up
+    let factorIds = [];       // every authenticator already set up (a backup device adds one)
 
     function step(id) {
       for (const s of steps) $(s).hidden = s !== id;
@@ -172,8 +173,8 @@
       $("who").hidden = !session;
       const { data, error } = await supabase.auth.mfa.listFactors();
       if (error) throw error;
-      const verified = data.totp.find(f => f.status === "verified");
-      if (verified) { factorId = verified.id; step("code-step"); return; }
+      const verified = data.totp.filter(f => f.status === "verified");
+      if (verified.length) { factorIds = verified.map(f => f.id); factorId = null; step("code-step"); return; }
 
       // Clear out any half-finished set-up from an earlier visit, then start a fresh one.
       for (const f of data.all.filter(f => f.factor_type === "totp" && f.status !== "verified")) {
@@ -192,7 +193,13 @@
       const code = codeInput.value.replace(/\D/g, "");
       if (code.length !== 6) { errBox.textContent = "Enter the 6 digits from your authenticator app."; return; }
       errBox.textContent = "";
-      const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code });
+      // A code can come from any of the authenticators set up, so each is tried
+      // in turn until one accepts it.
+      let error = null;
+      for (const id of factorId ? [factorId] : factorIds) {
+        ({ error } = await supabase.auth.mfa.challengeAndVerify({ factorId: id, code }));
+        if (!error) break;
+      }
       if (error) { errBox.textContent = message(error); codeInput.select(); return; }
       done();
     }

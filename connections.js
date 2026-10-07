@@ -7,7 +7,9 @@
 //
 // It edits the same settings the apps keep on this device, so a change here
 // is a change there:
-//   - lifeOS.: the Supabase sign-in every app shares (auth.js); shown only
+//   - lifeOS.: the Supabase sign-in every app shares (auth.js), and the
+//     authenticator apps that give its two-factor codes: add a backup device
+//     or remove one
 //   - Google Calendar: calendar.'s token and client ID (google.js), renewed here
 //   - Craft (my space., work.) and Todoist (joint.): "tasks.settings", which
 //     tasks., media. and today. all read
@@ -48,6 +50,14 @@ const CSS = `
   .cn-b.main { background:var(--sl-text); color:var(--sl-surface); border-color:var(--sl-text); }
   .cn-more { border:0; background:none; color:var(--sl-muted); font:inherit; font-size:.8rem; text-decoration:underline; cursor:pointer; padding:0; margin-top:6px; }
   .cn-foot { display:flex; justify-content:flex-end; margin-top:6px; }
+  .cn-auths { margin-top:8px; display:grid; gap:6px; }
+  .cn-auth { display:flex; align-items:center; gap:8px; font-size:.88rem; }
+  .cn-auth span { flex:1; min-width:0; overflow-wrap:anywhere; }
+  .cn-auth small { color:var(--sl-muted); }
+  .cn-qr { display:flex; justify-content:center; margin:6px 0; }
+  .cn-qr img { width:180px; height:180px; background:#fff; border-radius:10px; padding:6px; }
+  .cn-key { font-family:ui-monospace, Menlo, monospace; font-size:.82rem; overflow-wrap:anywhere; user-select:all; }
+  .cn-err { color:#c0504d; font-size:.82rem; font-weight:600; min-height:1em; }
 `;
 
 export function mountConnections({ saved = () => {} } = {}) {
@@ -107,13 +117,102 @@ export function mountConnections({ saved = () => {} } = {}) {
   function lifeosBox() {
     const box = document.createElement("div");
     box.className = "cn-box";
-    box.innerHTML = `<div class="cn-top"><b>lifeOS.</b><span class="cn-st">Checking…</span></div><div class="cn-note"></div>`;
+    box.innerHTML = `<div class="cn-top"><b>lifeOS.</b><span class="cn-st">Checking…</span></div><div class="cn-note"></div>
+      <div class="cn-auths"></div>
+      <button type="button" class="cn-more" data-a="add" hidden>Add another authenticator</button>
+      <div class="cn-f" data-a="setup" hidden></div>`;
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       status(box.querySelector(".cn-st"), user ? { ok: aal?.currentLevel === "aal2", text: aal?.currentLevel === "aal2" ? "Signed in · two-factor" : "Signed in · no two-factor" } : { ok: false, text: "Signed out" });
       box.querySelector(".cn-note").textContent = user ? `${user.email}. The one sign-in every app shares.` : "";
+      if (user && aal?.currentLevel === "aal2") authenticators(box);
     }).catch(() => status(box.querySelector(".cn-st"), { ok: false, text: "Couldn’t check" }));
     return box;
+  }
+
+  // ── Authenticators: the apps that give the two-factor code ──
+  // A second one (another phone, an iPad, a password manager) means losing a
+  // phone doesn't lock you out. Sign-in accepts a code from any of them.
+  async function authenticators(box) {
+    const listEl = box.querySelector(".cn-auths");
+    const addBtn = box.querySelector("[data-a=add]");
+    const setup = box.querySelector("[data-a=setup]");
+    const { data, error } = await supabase.auth.mfa.listFactors();
+    if (error) { listEl.innerHTML = `<div class="cn-err">Couldn’t list your authenticators: ${esc(error.message)}</div>`; return; }
+    const verified = data.totp.filter(f => f.status === "verified");
+    const when = (iso) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    listEl.replaceChildren(...verified.map(f => {
+      const row = document.createElement("div");
+      row.className = "cn-auth";
+      row.innerHTML = `<span><b></b> <small>added ${esc(when(f.created_at))}</small></span>${verified.length > 1 ? `<button type="button" class="cn-b">Remove</button>` : ""}`;
+      row.querySelector("b").textContent = f.friendly_name || "Authenticator";
+      const rm = row.querySelector("button");
+      // Two taps, so one stray tap can't remove it. The last one can't be removed here.
+      if (rm) rm.onclick = async () => {
+        if (rm.dataset.sure !== "1") { rm.dataset.sure = "1"; rm.textContent = "Tap again to remove"; return; }
+        rm.disabled = true;
+        const { error: err } = await supabase.auth.mfa.unenroll({ factorId: f.id });
+        if (err) { rm.disabled = false; rm.textContent = "Couldn’t remove"; return; }
+        authenticators(box);
+      };
+      return row;
+    }));
+    addBtn.hidden = false;
+    addBtn.onclick = () => startSetup(box, verified);
+    setup.hidden = true;
+  }
+
+  async function startSetup(box, verified) {
+    const setup = box.querySelector("[data-a=setup]");
+    const addBtn = box.querySelector("[data-a=add]");
+    setup.hidden = false;
+    addBtn.hidden = true;
+    setup.innerHTML = `<input data-a="name" placeholder="Name it, e.g. iPad or 1Password" maxlength="40" aria-label="Name for this authenticator">
+      <div class="cn-row"><button type="button" class="cn-b main" data-a="go">Show the QR code</button><button type="button" class="cn-b" data-a="cancel">Cancel</button></div>
+      <div class="cn-err" role="alert"></div>`;
+    const err = setup.querySelector(".cn-err");
+    const name = setup.querySelector("[data-a=name]");
+    name.focus();
+    setup.querySelector("[data-a=cancel]").onclick = () => authenticators(box);
+    setup.querySelector("[data-a=go]").onclick = async () => {
+      const label = name.value.trim() || `Authenticator ${verified.length + 1}`;
+      if (verified.some(f => (f.friendly_name || "").toLowerCase() === label.toLowerCase())) { err.textContent = "You already have one with that name."; return; }
+      err.textContent = "";
+      // A set-up abandoned earlier would block a new one, so it goes first.
+      const { data } = await supabase.auth.mfa.listFactors();
+      for (const f of (data?.all || []).filter(f => f.factor_type === "totp" && f.status !== "verified")) {
+        await supabase.auth.mfa.unenroll({ factorId: f.id });
+      }
+      const enrol = await supabase.auth.mfa.enroll({ factorType: "totp", friendlyName: label });
+      if (enrol.error) { err.textContent = enrol.error.message; return; }
+      const { id, totp } = enrol.data;
+      setup.innerHTML = `<div class="cn-note">On the new device, add an account in your authenticator app and scan this, then enter the 6-digit code it shows.</div>
+        <div class="cn-qr"><img alt="QR code for your authenticator app"></div>
+        <div class="cn-note">Or type this key: <span class="cn-key"></span></div>
+        <input data-a="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" aria-label="6-digit code from the new authenticator">
+        <div class="cn-row"><button type="button" class="cn-b main" data-a="verify">Add it</button><button type="button" class="cn-b" data-a="cancel">Cancel</button></div>
+        <div class="cn-err" role="alert"></div>`;
+      setup.querySelector("img").src = totp.qr_code;
+      setup.querySelector(".cn-key").textContent = totp.secret;
+      const code = setup.querySelector("[data-a=code]");
+      const err2 = setup.querySelector(".cn-err");
+      code.focus();
+      setup.querySelector("[data-a=cancel]").onclick = async () => {
+        await supabase.auth.mfa.unenroll({ factorId: id });
+        authenticators(box);
+      };
+      const verify = async () => {
+        const digits = code.value.replace(/\D/g, "");
+        if (digits.length !== 6) { err2.textContent = "Enter the 6 digits from the new device."; return; }
+        err2.textContent = "Checking…";
+        const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId: id, code: digits });
+        if (error) { err2.textContent = /invalid|expired/i.test(error.message) ? "That code didn’t match. Check it’s the new device’s code and try the next one." : error.message; code.select(); return; }
+        authenticators(box);
+        status(box.querySelector(".cn-st"), { ok: true, text: `Added ${label}` });
+      };
+      setup.querySelector("[data-a=verify]").onclick = verify;
+      code.addEventListener("input", () => { if (code.value.replace(/\D/g, "").length === 6) verify(); });
+    };
   }
 
   function googleBox() {
