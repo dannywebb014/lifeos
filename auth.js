@@ -65,8 +65,13 @@ async function pageLock(name, _timeout, fn) {
   try { return await fn(); } finally { release(); }
 }
 
+// Never read a sign-in from the page's address (supabase-js does by default,
+// for sign-in links we don't use). Google's calendar reply comes back as
+// "#access_token=…", which it took for a broken Supabase sign-in: it then
+// deleted the saved sign-in for every app on the site and sent them all to
+// sign in, and again on the way back, as the reply was still in the address.
 // One client per page, however many scripts import this file.
-export const supabase = (globalThis.__hubSupabase ||= createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { lock: pageLock } }));
+export const supabase = (globalThis.__hubSupabase ||= createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { lock: pageLock, detectSessionInUrl: false } }));
 
 // Only addresses on this site may be returned to after signing in.
 export function safeNext(raw) {
