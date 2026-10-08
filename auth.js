@@ -13,6 +13,7 @@
 
 // supabase-js 2.57.4, bundled into one file on this site (vendor/) so it loads in one request.
 import { createClient } from "./vendor/supabase-js-2.57.4.js";
+import { install as installReports } from "./shared/report.js?v=1";
 
 const SUPABASE_URL = "https://tvpmeysctvlhjyhotfyk.supabase.co";
 // The anon key is meant to be public: every table it can reach is guarded by
@@ -72,6 +73,10 @@ async function pageLock(name, _timeout, fn) {
 // sign in, and again on the way back, as the reply was still in the address.
 // One client per page, however many scripts import this file.
 export const supabase = (globalThis.__hubSupabase ||= createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { lock: pageLock, detectSessionInUrl: false } }));
+
+// Every app that signs in here also records what goes wrong (shared/report.js),
+// including each trip to the sign-in page and why.
+const report = installReports({ supabase });
 
 // Only addresses on this site may be returned to after signing in.
 export function safeNext(raw) {
@@ -151,11 +156,13 @@ export async function requireAuth({ allowDemo = false } = {}) {
       let recent = false;
       try { recent = Date.now() - (JSON.parse(localStorage.getItem(REASON_KEY) || "{}").at || 0) < 5000; } catch { /* none */ }
       if (!recent) try { localStorage.setItem(REASON_KEY, JSON.stringify({ reason: "signed out (here, in another app, or by Supabase)", at: Date.now(), from: location.pathname })); } catch { /* private mode */ }
+      if (!recent) report.signedOut("signed out (here, in another app, or by Supabase)");
       location.replace(signInUrl());
     });
     return session;
   }
   try { localStorage.setItem(REASON_KEY, JSON.stringify({ reason: lastReason || "unknown", at: Date.now(), from: location.pathname })); } catch { /* private mode */ }
+  report.signedOut(lastReason || "unknown");
   location.replace(signInUrl());
   return new Promise(() => {});
 }
