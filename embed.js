@@ -23,6 +23,58 @@
 
 import { supabase } from "./auth.js";
 
+// A stand-in for `document`, so an app written for a page of its own runs in
+// its shadow root unchanged: `const document = docFor(ctx)` at the top of
+// its mount(). Lookups (getElementById, querySelector…) search the app's
+// root; body is the app's page element; listeners go on the real document
+// (and come off at unmount), and key presses reach the app only while it's
+// on screen, with e.target the element really pressed in (not the app's box).
+// Everything else is the real document.
+const KEYS = new Set(["keydown", "keyup", "keypress"]);
+export function docFor({ root, host, active }) {
+  const real = document;
+  const added = [];
+  const unwrap = (e) => new Proxy(e, {
+    get: (t, k) => {
+      if (k === "target") return t.composedPath()[0] || t.target;
+      const v = Reflect.get(t, k, t);
+      return typeof v === "function" ? v.bind(t) : v;
+    },
+  });
+  const doc = new Proxy(real, {
+    get(t, k) {
+      switch (k) {
+        case "getElementById": return (id) => root.getElementById(id);
+        case "querySelector": return (sel) => root.querySelector(sel);
+        case "querySelectorAll": return (sel) => root.querySelectorAll(sel);
+        case "getElementsByClassName": return (c) => root.querySelectorAll(`.${c}`);
+        case "body": return root.querySelector(".page") || root;
+        case "documentElement": return host;
+        case "activeElement": return root.activeElement || null;
+        // For the app's unmount: takes off every listener it added.
+        case "off": return () => { for (const [type, wrapped, opts] of added.splice(0)) real.removeEventListener(type, wrapped, opts); };
+        case "addEventListener": return (type, fn, opts) => {
+          const wrapped = KEYS.has(type)
+            ? (e) => { if (active()) return (typeof fn === "function" ? fn : fn.handleEvent.bind(fn))(unwrap(e)); }
+            : fn;
+          real.addEventListener(type, wrapped, opts);
+          added.push([type, wrapped, opts, fn]);
+        };
+        case "removeEventListener": return (type, fn, opts) => {
+          const i = added.findIndex(x => x[0] === type && x[3] === fn);
+          if (i >= 0) { real.removeEventListener(type, added[i][1], opts); added.splice(i, 1); }
+        };
+        default: {
+          const v = Reflect.get(t, k, t);
+          return typeof v === "function" ? v.bind(t) : v;
+        }
+      }
+    },
+    set(t, k, v) { if (k === "title") return true; return Reflect.set(t, k, v, t); },
+  });
+  return doc;
+}
+
 // The app's stylesheet and markup, fetched once each and kept (the service
 // worker keeps them for offline too).
 const files = new Map();
