@@ -182,6 +182,14 @@ export async function moveSpace(task, spaceId) {
   return { shared: Boolean(household) };
 }
 export const reopenTask = (id) => update(id, { done_at: null });
+// Tasks ticked off in the last `days` days, newest first, each with doneAt.
+// (A repeating task never closes: a tick moves it on, so it isn't here.)
+export async function loadDone(days = 7) {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const rows = check(await supabase.from(TABLE).select(`${COLUMNS},done_at`)
+    .gte("done_at", since).order("done_at", { ascending: false }).limit(100));
+  return rows.map(r => ({ ...toTask(r), doneAt: r.done_at }));
+}
 // Takes one ID or a list, so "move all to tomorrow" is one request.
 export const rescheduleTask = (ids, date) => update(ids, { date });
 export const renameTask = (id, text) => update(id, { text });
