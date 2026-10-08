@@ -11,8 +11,10 @@
 //
 // It has two views. "today" from the morning; from 6pm it starts on
 // "tomorrow": what's planned, and today's leftover tasks with a button to
-// move them all over. The first time lifeOS is opened each morning (5am to
-// noon) and each evening (from 6pm) it opens by itself, once per slot.
+// move them all over. It opens from the sun button (or T), never by itself.
+// On a phone each app is a small card; on a wider screen it fills the page,
+// and each card lists the day in full (every event, task, meal, the week's
+// training and the last seven days of breathing).
 // An expired Google sign-in is renewed quietly when it opens (google.js).
 
 import { supabase } from "./auth.js";
@@ -28,37 +30,62 @@ const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); retur
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const cleanKey = (k) => String(k || "").replace(/[\s ​-‍﻿]/g, "");
 const BASE = "https://dannywebb014.github.io";
-const AUTO_KEY = "lifeos.today.auto";
 const EVENING = 18;
 
 // Each loader gets the view: { day (midnight of the day shown), tomorrow }.
 
 // ── calendar.: the next event left today, or tomorrow's first ──
+// Every calendar shown in Google (as calendar. and the reminders read), and
+// the whole day in `items`.
 async function calendar({ day, tomorrow }) {
   const { token } = google.auth();
   if (!google.isConnected()) {
     return google.clientId() ? { main: "Tap to renew", sub: "Google sign-in ran out", muted: true, action: "renew" }
       : { main: "Not connected", sub: "set up in connections", muted: true, action: "setup" };
   }
-  const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
-  Object.entries({
-    timeMin: (tomorrow ? day : new Date()).toISOString(), timeMax: addDays(day, 1).toISOString(),
-    singleEvents: "true", orderBy: "startTime", maxResults: "30",
-    fields: "items(summary,start,status,extendedProperties)",
-  }).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`Google ${res.status}`);
-  const items = ((await res.json()).items || []).filter(e => e.status !== "cancelled" && e.start?.dateTime
-    && e.extendedProperties?.private?.calhubDone !== "1");
-  if (!items.length) return { main: tomorrow ? "Nothing booked" : "Nothing else today", muted: true };
-  const first = items[0];
+  const api = async (path) => {
+    const res = await fetch(`https://www.googleapis.com/calendar/v3/${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) throw new Error(`Google ${res.status}`);
+    return res.json();
+  };
+  const cals = (await api("users/me/calendarList?minAccessRole=reader&fields=items(id,selected,backgroundColor)")).items || [];
+  const range = `timeMin=${encodeURIComponent(day.toISOString())}&timeMax=${encodeURIComponent(addDays(day, 1).toISOString())}`;
+  const lists = await Promise.all(cals.filter(c => c.selected !== false).map(c =>
+    api(`calendars/${encodeURIComponent(c.id)}/events?singleEvents=true&orderBy=startTime&maxResults=50&${range}&fields=items(summary,status,location,start,end,extendedProperties)`)
+      .then(r => (r.items || []).map(e => ({ ...e, colour: c.backgroundColor })), () => [])));
+  // An event on two calendars (shared, or invited twice) shows once.
+  const seen = new Set();
+  const events = lists.flat().filter(e => {
+    if (e.status === "cancelled" || e.extendedProperties?.private?.calhubDone === "1") return false;
+    const k = `${e.summary}|${e.start?.dateTime || e.start?.date}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const now = new Date();
+  const allDay = events.filter(e => !e.start?.dateTime);
+  const timed = events.filter(e => e.start?.dateTime)
+    .map(e => ({ ...e, s: new Date(e.start.dateTime), e: new Date(e.end?.dateTime || e.start.dateTime) }))
+    .sort((a, b) => a.s - b.s);
+  const items = [
+    ...allDay.map(e => ({ time: "all day", text: e.summary || "(no title)", sub: e.location, colour: e.colour })),
+    ...timed.map(e => ({ time: `${hhmm(e.s)}–${hhmm(e.e)}`, text: e.summary || "(no title)", sub: e.location, colour: e.colour,
+      past: !tomorrow && e.e <= now, now: !tomorrow && e.s <= now && e.e > now })),
+  ];
+  const left = tomorrow ? timed : timed.filter(e => e.e > now);
+  if (!left.length) return { main: tomorrow ? "Nothing booked" : "Nothing else today", sub: allDay.length ? `${allDay.length} all-day` : "", muted: true, items };
+  const first = left[0];
   return {
-    main: `${hhmm(new Date(first.start.dateTime))} ${first.summary || "(no title)"}`,
-    sub: items.length > 1 ? `${tomorrow ? "first of" : "then"} ${tomorrow ? items.length : items.length - 1}${tomorrow ? "" : " more"}` : tomorrow ? "the only one" : "last one today",
+    main: `${hhmm(first.s)} ${first.summary || "(no title)"}`,
+    sub: left.length > 1 ? `${tomorrow ? "first of" : "then"} ${tomorrow ? left.length : left.length - 1}${tomorrow ? "" : " more"}` : tomorrow ? "the only one" : "last one today",
+    items,
   };
 }
 
 // ── tasks.: due on the day shown, and what's left over from before ──
+const SPACE = { my: "my space", work: "work", todoist: "joint", joint: "joint" };
+const PRIORITY = { 3: "#d9534f", 2: "#e0a030", 1: "#4caf6a" };
+const shortDay = (iso) => new Date(`${iso}T12:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 // The connections are the ones saved in tasks. on this device. Each task
 // left over is kept in `leftovers`, for moving them all to tomorrow.
 let leftovers = [];   // { spaceId, id, text, todoist?, builtin? }
@@ -66,11 +93,13 @@ async function tasks({ day, tomorrow }) {
   const settings = read("tasks.settings") || {};
   const today = isoDay(new Date()), shown = isoDay(day);
   let due = 0, late = 0, high = 0, any = false;
-  const found = [];
+  const found = [], listed = [];
   // Red (high priority) ones due on the day shown or before are counted too.
   const seenTask = (spaceId, id, text, date, todo, builtin = false, priority = 0) => {
     if (!date) return;
     if (date === shown) due++;
+    const over = date <= today && (tomorrow || date < today);
+    if (date === shown || over) listed.push({ text, date, spaceId, priority, late: over });
     if (priority === 3 && (date === shown || (date <= today && (tomorrow || date < today)))) high++;
     if (date <= today && (tomorrow || date < today)) { late++; found.push({ spaceId, id, text, todoist: todo, builtin }); }
   };
@@ -107,20 +136,27 @@ async function tasks({ day, tomorrow }) {
   }
   await builtin;
   leftovers = tomorrow ? found : [];
+  // Overdue first, then red, amber, green.
+  listed.sort((a, b) => b.late - a.late || b.priority - a.priority || a.text.localeCompare(b.text));
+  const items = listed.map(t => ({
+    text: t.text, colour: PRIORITY[t.priority] || "",
+    sub: `${SPACE[t.spaceId] || t.spaceId}${t.late ? ` · ${t.date === today ? "left from today" : `was due ${shortDay(t.date)}`}` : ""}`,
+    late: t.late,
+  }));
   if (!any) return { main: tomorrow ? "Nothing yet" : "All clear", sub: tomorrow ? "nothing for tomorrow" : "nothing due today", muted: true };
   if (tomorrow) {
     return {
       main: due ? `${due} for tomorrow` : "Nothing yet",
       sub: late ? `<span class="late">${late} left from today</span>` : "today’s all done",
-      subHtml: true, muted: !due && !late,
+      subHtml: true, muted: !due && !late, items,
     };
   }
-  if (!due && !late) return { main: "All clear", sub: "nothing due today" };
+  if (!due && !late) return { main: "All clear", sub: "nothing due today", items };
   const red = high ? ` · <span class="late">${high} high</span>` : "";
   return {
     main: `${due + late} to do`,
     sub: (late ? `<span class="late">${late} overdue</span>` : "all due today") + red,
-    subHtml: true,
+    subHtml: true, items,
   };
 }
 
@@ -192,17 +228,28 @@ async function householdId() {
   if (data?.household_id) try { localStorage.setItem(k, data.household_id); } catch { /* private mode */ }
   return data?.household_id || null;
 }
+const MEAL_ORDER = ["Breakfast", "Lunch", "Dinner"];
 async function dinner({ day }) {
   const hid = await householdId();
   if (!hid) return null;
-  const { data, error } = await supabase.from("meal_plan").select("recipe_id, note")
-    .eq("household_id", hid).eq("day", DAY_NAMES[day.getDay()]).eq("meal", "Dinner");
+  const { data, error } = await supabase.from("meal_plan").select("meal, recipe_id, note")
+    .eq("household_id", hid).eq("day", DAY_NAMES[day.getDay()]);
   if (error) throw error;
-  const row = data.find(r => r.recipe_id) || data.find(r => r.note);
-  if (!row) return { main: "Nothing planned", sub: "dinner", muted: true };
-  if (!row.recipe_id) return { main: row.note, sub: "dinner" };
-  const r = await supabase.from("recipes").select("name").eq("id", row.recipe_id).maybeSingle();
-  return { main: r.data?.name || "A recipe", sub: data.length > 1 ? `dinner · +${data.length - 1} more` : "dinner", url: `${BASE}/foodhub/?recipe=${row.recipe_id}` };
+  const ids = [...new Set(data.map(r => r.recipe_id).filter(Boolean))];
+  const names = {};
+  if (ids.length) {
+    const r = await supabase.from("recipes").select("id, name").in("id", ids);
+    for (const x of r.data || []) names[x.id] = x.name;
+  }
+  const rank = (m) => { const i = MEAL_ORDER.indexOf(m); return i < 0 ? 9 : i; };
+  const items = data.filter(r => r.recipe_id || r.note)
+    .sort((a, b) => rank(a.meal) - rank(b.meal))
+    .map(r => ({ time: String(r.meal || "").toLowerCase(), text: r.recipe_id ? names[r.recipe_id] || "A recipe" : r.note }));
+  const dinners = data.filter(r => r.meal === "Dinner");
+  const row = dinners.find(r => r.recipe_id) || dinners.find(r => r.note);
+  if (!row) return { main: "Nothing planned", sub: "dinner", muted: true, items };
+  if (!row.recipe_id) return { main: row.note, sub: "dinner", items };
+  return { main: names[row.recipe_id] || "A recipe", sub: dinners.length > 1 ? `dinner · +${dinners.length - 1} more` : "dinner", url: `${BASE}/foodhub/?recipe=${row.recipe_id}`, items };
 }
 
 // ── train.: the day's session in the training plan ──
@@ -223,10 +270,15 @@ async function training({ day }) {
   const days = Math.round((day - new Date(y, m - 1, d)) / 86400000);
   const week = Math.floor(days / 7) + 1;
   if (days < 0 || week > plan.weeks.length) return null;
+  const monday = addDays(day, -(days % 7));
+  const items = [...plan.weeks[week - 1]].sort((a, b) => a.offset - b.offset).map(x => ({
+    time: addDays(monday, x.offset).toLocaleDateString("en-GB", { weekday: "short" }).toLowerCase(),
+    text: x.title, done: Boolean(data.logs?.[`w${week}-${x.key}`]?.done), now: x.offset === days % 7,
+  }));
   const s = plan.weeks[week - 1].find(x => x.offset === days % 7);
-  if (!s) return { main: "Rest day", sub: `week ${week}`, muted: true };
+  if (!s) return { main: "Rest day", sub: `week ${week}`, muted: true, items };
   const done = Boolean(data.logs?.[`w${week}-${s.key}`]?.done);
-  return { main: `${done ? "✓ " : ""}${s.title}`, sub: done ? "done" : `week ${week}`, done };
+  return { main: `${done ? "✓ " : ""}${s.title}`, sub: done ? "done" : `week ${week}`, done, items };
 }
 
 // ── breathe.: today's practice and the run of days (tomorrow too: an evening nudge) ──
@@ -238,10 +290,14 @@ async function breathing() {
   const doneToday = days.has(isoDay(today));
   let streak = 0;
   for (let d = doneToday ? today : addDays(today, -1); days.has(isoDay(d)); d = addDays(d, -1)) streak++;
+  const week = Array.from({ length: 7 }, (_, i) => {
+    const d = addDays(today, i - 6);
+    return { label: d.toLocaleDateString("en-GB", { weekday: "narrow" }), done: days.has(isoDay(d)) };
+  });
   return {
     main: doneToday ? "✓ Done today" : "Not yet today",
     sub: streak ? `${streak}-day streak` : "start a streak",
-    done: doneToday, muted: !doneToday && !streak,
+    done: doneToday, muted: !doneToday && !streak, week,
   };
 }
 
@@ -259,13 +315,13 @@ const SUN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-w
 const CSS = `
   .td-btn { right:116px; }
   .td-panel { padding:14px 14px 12px; }
-  .td-head { display:flex; align-items:center; gap:.6rem; margin:0 2px 10px; flex-wrap:wrap; }
+  .td-head { display:flex; align-items:center; gap:.6rem; margin:0 2px 10px; }
   .td-tabs { display:flex; gap:2px; padding:2px; border-radius:999px; background:var(--sl-hover); }
   .td-tabs button { border:0; background:none; border-radius:999px; padding:.2rem .75rem; cursor:pointer; color:var(--sl-muted);
     font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:1.1rem; }
   .td-tabs button i { font-style:normal; color:var(--life-accent); }
   .td-tabs button[aria-pressed="true"] { background:var(--sl-surface); color:var(--life-logo); box-shadow:var(--sl-shadow); }
-  .td-date { color:var(--sl-muted); font-size:.85rem; }
+  .td-date { color:var(--sl-muted); font-size:.85rem; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .td-cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(9.5rem, 1fr)); gap:.5rem; overflow-y:auto; }
   .tcard { min-height:4.8rem; padding:.6rem .75rem; border-radius:14px; text-align:left; cursor:pointer;
     background:var(--bg); border:1px solid var(--sl-line); color:var(--sl-text); font:inherit;
@@ -286,7 +342,65 @@ const CSS = `
   .td-move span { flex:1; min-width:0; }
   .td-move button { flex-shrink:0; border:0; border-radius:9px; padding:5px 12px; background:var(--sl-text); color:var(--sl-surface); font:inherit; font-weight:700; cursor:pointer; }
   .td-move button:disabled { opacity:.5; }
+  .td-x { flex-shrink:0; width:34px; height:34px; border-radius:10px; border:0; background:none; color:var(--sl-muted); cursor:pointer; display:grid; place-items:center; }
+  .td-x:hover { background:var(--sl-hover); color:var(--sl-text); }
+  .td-x svg { width:18px; height:18px; }
+  /* The full day, shown on a wider screen only. */
+  .tdl, .tweek { display:none; }
+
+  @media (min-width: 900px) {
+    .td-back { padding:clamp(16px, 3vh, 32px) clamp(16px, 3vw, 40px); align-items:stretch; }
+    .td-back .td-panel { width:min(1240px, 100%); max-height:none; height:100%; padding:22px 26px 20px; border-radius:20px; }
+    .td-head { margin:0 0 18px; gap:1rem; }
+    .td-x { margin-left:auto; }
+    .td-date { order:-1; flex:0 1 auto; font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:1.9rem; color:var(--life-logo); margin-right:.4rem; }
+    .td-cards { grid-template-columns:repeat(3, minmax(0, 1fr)); grid-auto-flow:row dense; grid-auto-rows:min-content; gap:14px; align-content:start; flex:1; padding:2px; }
+    .tcard[data-id="cal"], .tcard[data-id="tasks"] { grid-row:span 3; }
+    .tcard { min-height:0; padding:16px 18px 14px; gap:.2rem; border-radius:16px; cursor:default; }
+    .tcard:active { transform:none; }
+    .tcard .tl { font-size:1.2rem; cursor:pointer; }
+    .tcard .tl::after { content:"open →"; float:right; margin-top:.3rem; font-family:var(--hub-body, system-ui, sans-serif); font-style:normal; font-size:.75rem; font-weight:600; color:var(--sl-dim); }
+    .tcard:hover .tl::after { color:var(--a); }
+    .tcard .tm { font-size:1.08rem; }
+    .tcard .ts { font-size:.85rem; }
+    .tdl { display:flex; flex-direction:column; margin-top:.7rem; padding-top:.4rem; border-top:1px solid var(--sl-line); }
+    .tdl:empty { display:none; }
+    .tdi { display:grid; grid-template-columns:5.4rem minmax(0, 1fr); gap:.7rem; align-items:baseline; padding:.42rem 0; font-size:.92rem; line-height:1.3; }
+    .tdi + .tdi { border-top:1px dashed color-mix(in srgb, var(--sl-line) 70%, transparent); }
+    .tdi .tt { color:var(--sl-muted); font-size:.82rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .tdl.notime .tdi { grid-template-columns:minmax(0, 1fr); }
+    .tdl.notime .tt { display:none; }
+    .tdi .tx { display:flex; gap:.5rem; align-items:baseline; min-width:0; }
+    .tdi .tx > i { flex-shrink:0; width:9px; height:9px; border-radius:50%; background:var(--dot); translate:0 -1px; }
+    .tdi .tx b { font-weight:600; overflow-wrap:anywhere; }
+    .tdi .tx small { display:block; font-size:.8rem; color:var(--sl-muted); font-weight:400; }
+    .tdi .tx small .late { color:#c0504d; font-weight:600; }
+    .tdi.past { opacity:.45; }
+    .tdi.now .tt, .tdi.now b { color:var(--a); }
+    .tdi.done b { text-decoration:line-through; text-decoration-color:var(--sl-dim); color:var(--sl-muted); }
+    .tdi.late .tt { color:#c0504d; }
+    .tdl .more { font-size:.8rem; color:var(--sl-muted); padding:.4rem 0 0; }
+    .tweek { display:flex; gap:.4rem; margin-top:.8rem; }
+    .tweek span { flex:1; display:grid; place-items:center; gap:.25rem; font-size:.72rem; color:var(--sl-muted); }
+    .tweek span i { width:20px; height:20px; border-radius:50%; border:2px solid var(--sl-line); }
+    .tweek span.on i { background:var(--a); border-color:var(--a); }
+    .td-move { margin-top:14px; }
+  }
 `;
+const X = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+const escHtml = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const MAX_ITEMS = 14;
+
+// The full list under a card (wide screens): a time or label, then the thing.
+function detail(r) {
+  const items = r?.items || [];
+  if (!items.length) return "";
+  const rows = items.slice(0, MAX_ITEMS).map(x => `<span class="tdi${x.past ? " past" : ""}${x.now ? " now" : ""}${x.done ? " done" : ""}${x.late ? " late" : ""}">
+    <span class="tt">${escHtml(x.time || "")}</span>
+    <span class="tx">${x.colour ? `<i style="--dot:${escHtml(x.colour)}"></i>` : ""}<span><b>${escHtml(x.text)}</b>${x.sub ? `<small>${escHtml(x.sub)}</small>` : ""}</span></span></span>`).join("");
+  const more = items.length > MAX_ITEMS ? `<span class="more">and ${items.length - MAX_ITEMS} more</span>` : "";
+  return rows + more;
+}
 
 // A sun beside search opens it (or T); a card closes it and opens its app.
 // `setup()` opens the connections box, for a card that has nothing to show yet.
@@ -296,15 +410,17 @@ export function mountToday({ open: openApp, setup = () => {}, enabled = () => tr
   document.head.append(style);
 
   const back = document.createElement("div");
-  back.className = "sl-back"; back.hidden = true;
+  back.className = "sl-back td-back"; back.hidden = true;
   back.innerHTML = `<div class="sl-panel td-panel" role="dialog" aria-modal="true" aria-label="Today">
     <div class="td-head"><div class="td-tabs" role="group">
       <button type="button" data-v="today">today<i>.</i></button><button type="button" data-v="tomorrow">tomorrow<i>.</i></button></div>
-      <span class="td-date"></span></div>
+      <span class="td-date"></span><button type="button" class="td-x" aria-label="Close">${X}</button></div>
     <div class="td-cards"></div>
     <div class="td-move" hidden><span></span><button type="button">Move to tomorrow</button></div></div>`;
   document.body.append(back);
   const row = back.querySelector(".td-cards"), date = back.querySelector(".td-date");
+  back.querySelector(".td-x").onclick = () => close();
+  const wide = matchMedia("(min-width: 900px)");
   const move = back.querySelector(".td-move"), moveMsg = move.querySelector("span"), moveBtn = move.querySelector("button");
 
   const btn = document.createElement("button");
@@ -324,8 +440,11 @@ export function mountToday({ open: openApp, setup = () => {}, enabled = () => tr
     b.type = "button"; b.className = "tcard wait";
     b.style.setProperty("--c", `var(--${c.id}-logo)`);
     b.style.setProperty("--a", `var(--${c.id}-accent)`);
-    b.innerHTML = `<span class="tl">${c.label}<i>.</i></span><span class="tm">…</span><span class="ts"></span>`;
-    b.onclick = () => {
+    b.dataset.id = c.id;
+    b.innerHTML = `<span class="tl">${c.label}<i>.</i></span><span class="tm">…</span><span class="ts"></span><span class="tdl"></span><span class="tweek"></span>`;
+    b.onclick = (e) => {
+      // Full page: the app opens from the card's name, so the lists can be read and selected.
+      if (wide.matches && !e.target.closest(".tl") && !c.result?.action) return;
       const action = c.result?.action;
       if (action === "renew" && google.connect({ then: "today" })) return;
       close();
@@ -355,6 +474,10 @@ export function mountToday({ open: openApp, setup = () => {}, enabled = () => tr
       c.el.querySelector(".tm").textContent = r.main;
       const ts = c.el.querySelector(".ts");
       if (r.subHtml) ts.innerHTML = r.sub || ""; else ts.textContent = r.sub || "";
+      const list = c.el.querySelector(".tdl");
+      list.innerHTML = detail(r);
+      list.classList.toggle("notime", !(r.items || []).some(x => x.time));
+      c.el.querySelector(".tweek").innerHTML = (r.week || []).map(d => `<span class="${d.done ? "on" : ""}"><i></i>${escHtml(d.label)}</span>`).join("");
     }));
     if (mine !== gen || !info.tomorrow || !leftovers.length) return;
     moveMsg.textContent = `${leftovers.length} task${leftovers.length === 1 ? "" : "s"} left from today`;
@@ -402,19 +525,5 @@ export function mountToday({ open: openApp, setup = () => {}, enabled = () => tr
     if (e.key === "t" || e.key === "T") { e.preventDefault(); open(); }
   });
 
-  // Opens by itself the first time each morning and each evening.
-  function autoOpen() {
-    const h = new Date().getHours();
-    const slot = h >= 5 && h < 12 ? "morning" : h >= EVENING ? "evening" : "";
-    if (!slot) return false;
-    const mark = `${isoDay(new Date())}:${slot}`;
-    let last = null;
-    try { last = localStorage.getItem(AUTO_KEY); } catch { /* private mode */ }
-    if (last === mark) return false;
-    try { localStorage.setItem(AUTO_KEY, mark); } catch { return false; }
-    open();
-    return true;
-  }
-
-  return { open, close, refresh, autoOpen };
+  return { open, close, refresh };
 }
