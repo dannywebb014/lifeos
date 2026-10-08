@@ -6,7 +6,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { read } from "./read.ts";
 
-const ALLOWED_ORIGINS = ["https://dannywebb014.github.io", "http://localhost:8774"];
+const ALLOWED_ORIGINS = ["https://dannywebb014.github.io", "https://lifeos-app-nine-indol.vercel.app", "http://localhost:8774"];
 
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
