@@ -198,14 +198,16 @@
     }
     .loading .dot { font-style: normal; color: var(--now-accent); animation: blink 1s infinite; }
     @keyframes blink { 50% { opacity: .2; } }
-    iframe {
+    /* An app: a frame, or (an app with an embed module) a box in this page (embed.js). */
+    iframe, .app-host {
       position: absolute; inset: 0; width: 100%; height: 100%;
       border: 0; background: var(--bg);
       visibility: hidden; opacity: 0;
       transition: opacity .15s;
     }
-    iframe.on { visibility: visible; }
-    iframe.on.ready { opacity: 1; }
+    .app-host { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+    iframe.on, .app-host.on { visibility: visible; }
+    iframe.on.ready, .app-host.on.ready { opacity: 1; }
 
     /* a thin handle halfway down the left edge: tap it to close, or swipe from it */
     .close {
@@ -355,7 +357,7 @@
     shopBtn.title = 'Shopping list'; shopBtn.setAttribute('aria-label', 'Shopping list');
     shopBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>';
     shopBtn.onclick = () => {
-      const f = document.querySelector('iframe[title="food."]');
+      const f = document.querySelector('.sheet [title="food."]');
       if (!f) { window.lifeosOpenUrl?.('/foodhub/?tab=shopping'); return; }
       for (const ms of [0, 600, 1500]) setTimeout(() => f.contentWindow?.postMessage({ foodTab: 'shopping' }, location.origin), ms);
       window.lifeosOpen?.('food');
@@ -381,7 +383,8 @@
       { id: 'food',       name: 'food',       url: '/foodhub/' },
       { id: 'train',      name: 'train',      url: '/train/' },
       { id: 'breathe',    name: 'breathe',    url: '/breathhub/' },
-      { id: 'motivation', name: 'motivation', url: '/motivation/' },
+      // embed: runs in this page (lifeos/embed.js) rather than a frame.
+      { id: 'motivation', name: 'motivation', url: '/motivation/', embed: '/motivation/embed.js?v=1' },
       { id: 'places',     name: 'places',     url: '/places/' },
       { id: 'media',      name: 'media',      url: '/mediahub/' },
       { id: 'wish',       name: 'wish',       url: '/lifeos/wish/' },
@@ -472,6 +475,16 @@
     // Frames load on first open, then stay alive so going back keeps your place.
     function frameFor(app, hash = '', url = '') {
       if (frames[app.id]) return frames[app.id];
+      if (app.embed) {
+        // In this page: a box now, the app attached as soon as embed.js has loaded.
+        const box = document.createElement('div');
+        box.className = 'app-host';
+        box.title = app.name + '.';
+        box.src = url || app.url + hash;
+        sheet.append(box);
+        import('/lifeos/embed.js?v=1').then(m => m.attach(box, app)).catch(err => console.error(`${app.name} couldn’t start:`, err));
+        return frames[app.id] = box;
+      }
       const f = document.createElement('iframe');
       f.src = url || app.url + hash;
       f.title = app.name + '.';
@@ -506,7 +519,7 @@
       setTimeout(() => {
         if (openId) return;
         for (const x of Object.values(frames)) x.classList.remove('on');
-        for (const app of APPS) if (app.unload && frames[app.id]) { frames[app.id].remove(); delete frames[app.id]; }
+        for (const app of APPS) if (app.unload && frames[app.id]) { frames[app.id].unmount?.(); frames[app.id].remove(); delete frames[app.id]; }
       }, 500);
       wheel.focus({ preventScroll: true });
     }
@@ -517,12 +530,18 @@
       const app = APPS.find(x => x.id === e.state?.app);
       app ? open(app, false) : close();
     });
-    addEventListener('keydown', e => { if (e.key === 'Escape' && openId) back(); });
-    // 1–9 open the apps in wheel order, from anywhere on this page (an open
-    // app has the keyboard itself, so this is mostly the picker).
+    // An app running in this page (embed.js) gets the keyboard first: Escape
+    // closing one of its sheets, or a key typed in one of its boxes, isn't
+    // for the picker. (Its events reach here with the app's box as their
+    // target, so the real one is the first in the event's path.)
+    const typing = (e) => e.composedPath()[0]?.closest?.('input, textarea, select, [contenteditable]');
+    const embedOpen = () => Boolean(openId && frames[openId]?.classList.contains('app-host'));
+    addEventListener('keydown', e => { if (e.key === 'Escape' && openId && !e.defaultPrevented && !typing(e)) back(); });
+    // 1–9 open the apps in wheel order, from the picker (and over an app in a
+    // frame, which has the keyboard itself, so this is mostly the picker).
     addEventListener('keydown', e => {
-      if (e.metaKey || e.ctrlKey || e.altKey || !/^[1-9]$/.test(e.key)) return;
-      if (e.target.closest?.('input, textarea, select, [contenteditable]') || document.querySelector('.sl-back:not([hidden])')) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || !/^[1-9]$/.test(e.key) || e.defaultPrevented || embedOpen()) return;
+      if (typing(e) || document.querySelector('.sl-back:not([hidden])')) return;
       const app = APPS[Number(e.key) - 1];
       if (!app) return;
       e.preventDefault();
