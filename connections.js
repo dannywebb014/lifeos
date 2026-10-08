@@ -17,7 +17,7 @@
 
 import { supabase } from "./auth.js";
 import * as google from "./google.js?v=1";
-import * as reminders from "./shared/reminders.js?v=1";
+import * as reminders from "./shared/reminders.js?v=2";
 
 // The public half of the key the reminder sender signs notifications with
 // (its private half is a Supabase secret).

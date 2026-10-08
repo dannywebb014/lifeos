@@ -284,9 +284,9 @@
     // Add anything (A), from beside search: tasks, shopping, wish. (capture.js).
     import { mountCapture } from "/lifeos/capture.js?v=8";
     // today. (T), beside add: what's on today in each app.
-    import { mountToday } from "/lifeos/today.js?v=8";
+    import { mountToday } from "/lifeos/today.js?v=9";
     // Every sign-in and connection in one place, from the foot of the page.
-    import { mountConnections } from "/lifeos/connections.js?v=6";
+    import { mountConnections } from "/lifeos/connections.js?v=7";
     import * as google from "/lifeos/google.js?v=1";
     import { signOut } from "/lifeos/auth.js";
 
@@ -318,7 +318,7 @@
     // Keep the reminders before events up to date while lifeOS is open with
     // Google connected (shared/reminders.js); at most every 5 minutes.
     const syncReminders = () => {
-      if (google.isConnected()) import('/lifeos/shared/reminders.js?v=1')
+      if (google.isConnected()) import('/lifeos/shared/reminders.js?v=2')
         .then(r => r.syncFromGoogle(google.auth().token)).catch(err => console.error('Reminders:', err));
     };
     syncReminders();

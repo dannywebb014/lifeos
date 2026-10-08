@@ -6,8 +6,9 @@
 // next 36 hours of events and time blocks and keeps a reminder for each, 10
 // minutes before it starts, in the reminders table. The sender sends them.
 //
-// Every calendar shown in Google (selected) is read, so lifeOS and calendar.
-// always agree on the list. Time blocks already ticked off are skipped.
+// Every calendar shown in Google (selected) and not hidden in calendar. is
+// read, so lifeOS and calendar. agree on the list. Time blocks already
+// ticked off are skipped.
 
 import { supabase } from "/lifeos/auth.js";
 
@@ -35,7 +36,9 @@ export async function syncFromGoogle(token, { force = false } = {}) {
   const now = Date.now();
   const from = new Date(now).toISOString(), to = new Date(now + WINDOW_MS).toISOString();
   const cals = (await google(token, "users/me/calendarList?minAccessRole=reader&fields=items(id,selected)")).items || [];
-  const events = (await Promise.all(cals.filter(c => c.selected !== false).map(c =>
+  let hidden = [];
+  try { hidden = JSON.parse(localStorage.getItem("calendar.settings") || "{}").hidden || []; } catch { /* none */ }
+  const events = (await Promise.all(cals.filter(c => c.selected !== false && !hidden.includes(c.id)).map(c =>
     google(token, `calendars/${encodeURIComponent(c.id)}/events?singleEvents=true&orderBy=startTime&maxResults=100&timeMin=${encodeURIComponent(from)}&timeMax=${encodeURIComponent(to)}&fields=items(id,summary,status,location,start,extendedProperties)`)
       .then(r => r.items || [], () => []),
   ))).flat();

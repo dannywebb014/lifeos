@@ -35,8 +35,8 @@ const EVENING = 18;
 // Each loader gets the view: { day (midnight of the day shown), tomorrow }.
 
 // ── calendar.: the next event left today, or tomorrow's first ──
-// Every calendar shown in Google (as calendar. and the reminders read), and
-// the whole day in `items`.
+// Every calendar shown in Google and not hidden in calendar. (as the
+// reminders read them), and the whole day in `items`.
 async function calendar({ day, tomorrow }) {
   const { token } = google.auth();
   if (!google.isConnected()) {
@@ -50,7 +50,9 @@ async function calendar({ day, tomorrow }) {
   };
   const cals = (await api("users/me/calendarList?minAccessRole=reader&fields=items(id,selected,backgroundColor)")).items || [];
   const range = `timeMin=${encodeURIComponent(day.toISOString())}&timeMax=${encodeURIComponent(addDays(day, 1).toISOString())}`;
-  const lists = await Promise.all(cals.filter(c => c.selected !== false).map(c =>
+  // Calendars hidden in calendar. stay hidden here too.
+  const hidden = new Set(read("calendar.settings")?.hidden || []);
+  const lists = await Promise.all(cals.filter(c => c.selected !== false && !hidden.has(c.id)).map(c =>
     api(`calendars/${encodeURIComponent(c.id)}/events?singleEvents=true&orderBy=startTime&maxResults=50&${range}&fields=items(summary,status,location,start,end,extendedProperties)`)
       .then(r => (r.items || []).map(e => ({ ...e, colour: c.backgroundColor })), () => [])));
   // An event on two calendars (shared, or invited twice) shows once.
