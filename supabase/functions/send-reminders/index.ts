@@ -1,7 +1,7 @@
 // send-reminders: sends every reminder that's due (table reminders) to each
 // device its person turned notifications on for (push_subscriptions).
 //
-// Run once a minute by pg_cron (sql/notifications-cron.sql), which passes
+// Run every 2 minutes by pg_cron (sql/notifications-cron.sql), which passes
 // CRON_SECRET in the x-cron-secret header; nothing else may call it.
 // Secrets: CRON_SECRET, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY. The service role
 // key and URL are provided by Supabase.
@@ -27,10 +27,12 @@ Deno.serve(async (req) => {
   const now = Date.now();
 
   // Claim what's due by marking it sent first, so two runs never send one twice.
+  // Runs are 2 minutes apart, so anything due before the next run goes now:
+  // a reminder arrives up to 2 minutes early rather than late.
   const { data: due, error } = await db.from("reminders")
     .update({ sent_at: new Date(now).toISOString() })
     .is("sent_at", null)
-    .lte("fire_at", new Date(now + 30_000).toISOString())
+    .lte("fire_at", new Date(now + 120_000).toISOString())
     .select("id,user_id,title,body,url,fire_at,source_key");
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
