@@ -386,7 +386,7 @@
       // embed: runs in this page (lifeos/embed.js) rather than a frame.
       { id: 'motivation', name: 'motivation', url: '/motivation/', embed: '/motivation/embed.js?v=1' },
       { id: 'places',     name: 'places',     url: '/places/', embed: '/places/embed.js?v=1' },
-      { id: 'media',      name: 'media',      url: '/mediahub/' },
+      { id: 'media',      name: 'media',      url: '/mediahub/', embed: '/mediahub/embed.js?v=1' },
       { id: 'wish',       name: 'wish',       url: '/lifeos/wish/' },
     ];
 
@@ -536,7 +536,9 @@
     // target, so the real one is the first in the event's path.)
     const typing = (e) => e.composedPath()[0]?.closest?.('input, textarea, select, [contenteditable]');
     const embedOpen = () => Boolean(openId && frames[openId]?.classList.contains('app-host'));
-    addEventListener('keydown', e => { if (e.key === 'Escape' && openId && !e.defaultPrevented && !typing(e)) back(); });
+    // An app's own dialog closes itself on Escape, so that one is the app's too.
+    const inDialog = (e) => e.composedPath().some(n => n.tagName === 'DIALOG' && n.open);
+    addEventListener('keydown', e => { if (e.key === 'Escape' && openId && !e.defaultPrevented && !typing(e) && !inDialog(e)) back(); });
     // 1–9 open the apps in wheel order, from the picker (and over an app in a
     // frame, which has the keyboard itself, so this is mostly the picker).
     addEventListener('keydown', e => {

@@ -13,6 +13,8 @@
 //   url       a URL: the app's own address, with any ?query or #hash it was opened with
 //   supabase  the shared client
 //   active()  true while the app is the one on screen (gate keyboard shortcuts on it)
+//   standalone  true on the app's own page; false inside lifeOS, where the
+//             page's address and history are lifeOS's, not the app's
 //   asset(p)  a URL for one of the app's own files, relative to the module
 //
 //   hostApp(app, url) / attach(host, app): for lifeOS. An element that stands in for an iframe:
@@ -131,6 +133,7 @@ export function attach(host, app) {
       handle = (await mod.mount({
         root, host, supabase,
         url: new URL(current, location.origin),
+        standalone: false,
         active: () => host.classList.contains("on") && document.body.classList.contains("open"),
         asset: (p) => withVersion(p, base),
       })) || null;
@@ -159,5 +162,5 @@ export async function standalone(moduleUrl) {
   const root = host.attachShadow({ mode: "open" });
   const mod = await import(moduleUrl);
   const base = new URL(moduleUrl, location.href);
-  return mod.mount({ root, host, supabase, url: new URL(location.href), active: () => true, asset: (p) => withVersion(p, base) });
+  return mod.mount({ root, host, supabase, url: new URL(location.href), standalone: true, active: () => true, asset: (p) => withVersion(p, base) });
 }
