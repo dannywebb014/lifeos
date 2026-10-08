@@ -29,7 +29,7 @@ const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const cleanKey = (k) => String(k || "").replace(/[\s ​-‍﻿]/g, "");
-const BASE = "https://dannywebb014.github.io";
+const BASE = "";   // same site: every app is served from this one
 const EVENING = 18;
 
 // Each loader gets the view: { day (midnight of the day shown), tomorrow }.

@@ -1,4 +1,4 @@
-// One sign-in for every hub app on dannywebb014.github.io.
+// One sign-in for every lifeOS app (they are all served from one site).
 //
 // All the apps share this site, so they share the browser's storage and the
 // Supabase session in it: signing in once on /lifeos/signin/ signs in every
@@ -6,7 +6,7 @@
 // that has passed two-factor (Supabase calls it "aal2") it sends the browser to
 // the sign-in page, which comes back to the same address afterwards.
 //
-//   import { requireAuth, supabase } from "https://dannywebb014.github.io/lifeos/auth.js";
+//   import { requireAuth, supabase } from "/lifeos/auth.js";
 //   const session = await requireAuth();
 //
 // The page is hidden until the check passes, so nothing flashes before a redirect.

@@ -16,7 +16,7 @@
   <link rel="manifest" href="/lifeos/manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="stylesheet" href="https://dannywebb014.github.io/lifeos/fonts.css">
+  <link rel="stylesheet" href="/lifeos/fonts.css">
   <script type="module">
     // One sign-in for every hub app (lifeos/auth.js): no verified session, off to /lifeos/signin/.
     import { requireAuth } from "/lifeos/auth.js";
@@ -356,7 +356,7 @@
     shopBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>';
     shopBtn.onclick = () => {
       const f = document.querySelector('iframe[title="food."]');
-      if (!f) { window.lifeosOpenUrl?.('https://dannywebb014.github.io/foodhub/?tab=shopping'); return; }
+      if (!f) { window.lifeosOpenUrl?.('/foodhub/?tab=shopping'); return; }
       for (const ms of [0, 600, 1500]) setTimeout(() => f.contentWindow?.postMessage({ foodTab: 'shopping' }, location.origin), ms);
       window.lifeosOpen?.('food');
     };
@@ -376,15 +376,15 @@
     const APPS = [
       // unload: closed rather than kept in the background, because calendar.
       // re-signs in to Google when the phone wakes, and that takes over the whole page.
-      { id: 'cal',        name: 'calendar',   url: 'https://dannywebb014.github.io/calhub/', unload: true },
-      { id: 'tasks',      name: 'tasks',      url: 'https://dannywebb014.github.io/taskhub/' },
-      { id: 'food',       name: 'food',       url: 'https://dannywebb014.github.io/foodhub/' },
-      { id: 'train',      name: 'train',      url: 'https://dannywebb014.github.io/train/' },
-      { id: 'breathe',    name: 'breathe',    url: 'https://dannywebb014.github.io/breathhub/' },
-      { id: 'motivation', name: 'motivation', url: 'https://dannywebb014.github.io/motivation/' },
-      { id: 'places',     name: 'places',     url: 'https://dannywebb014.github.io/places/' },
-      { id: 'media',      name: 'media',      url: 'https://dannywebb014.github.io/mediahub/' },
-      { id: 'wish',       name: 'wish',       url: 'https://dannywebb014.github.io/lifeos/wish/' },
+      { id: 'cal',        name: 'calendar',   url: '/calhub/', unload: true },
+      { id: 'tasks',      name: 'tasks',      url: '/taskhub/' },
+      { id: 'food',       name: 'food',       url: '/foodhub/' },
+      { id: 'train',      name: 'train',      url: '/train/' },
+      { id: 'breathe',    name: 'breathe',    url: '/breathhub/' },
+      { id: 'motivation', name: 'motivation', url: '/motivation/' },
+      { id: 'places',     name: 'places',     url: '/places/' },
+      { id: 'media',      name: 'media',      url: '/mediahub/' },
+      { id: 'wish',       name: 'wish',       url: '/lifeos/wish/' },
     ];
 
     const root = document.documentElement.style;
