@@ -96,15 +96,18 @@
        screen to animate on iPhone, and made opening stutter.) */
     body.open .home { transform: scale(.95); opacity: .6; }
 
-    /* signs this device out of every hub app; quiet, at the foot of the page */
-    .sign-out {
-      position: relative; margin-top: .75rem; padding: .4rem .9rem;
-      border: 0; background: none; border-radius: 999px;
-      color: var(--muted); font: inherit; font-size: .9rem; opacity: .75; cursor: pointer;
+    /* The dock at the foot of the page: shopping, today., add, search,
+       connections and sign out, as one row of buttons. They're made by
+       spotlight/capture/today (fixed in the top-right corner there) and
+       moved in here, where they sit in the row instead. */
+    .dock {
+      position: relative; z-index: 5; display: flex; gap: .45rem; margin-top: .75rem; padding: .4rem;
+      border-radius: 18px; border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+      background: color-mix(in srgb, var(--bg) 70%, transparent);
+      -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
     }
-    .sign-out:hover, .sign-out:focus-visible { opacity: 1; background: color-mix(in srgb, var(--text) 8%, transparent); outline: none; }
-
-    .foot-links { position: relative; display: flex; gap: .25rem; }
+    .dock .sl-btn { position: static; }
+    .dock #sign-out:hover { color: #c0504d; }
 
     /* two soft orbs that drift and take the colour of the app in the middle */
     .orb {
@@ -238,8 +241,6 @@
     .switcher li.now { opacity: .85; }
     .switcher li.sel { opacity: 1; background: color-mix(in srgb, var(--accent) 18%, transparent); }
 
-    /* on a phone the title sits below the buttons in the top-right corner */
-    @media (max-width: 560px) { .home { padding-top: calc(4.4rem + env(safe-area-inset-top)); } }
 
     /* an invisible strip down the left edge picks up the swipe back */
     .edge {
@@ -247,8 +248,6 @@
       touch-action: none; display: none;
     }
     body.open .edge { display: block; }
-    /* the shopping list, one tap away: beside today., add and search */
-    .sl-btn.shop-btn { right: 166px; }
     /* search is for the picker; an open app keeps its own top-right corner */
     body.open .sl-btn { display: none; }
     .sheet.swiping { transition: none; }
@@ -265,10 +264,16 @@
       <div class="lens"></div>
       <div class="wheel" id="wheel" tabindex="0" role="listbox" aria-label="Apps"></div>
     </div>
-    <div class="foot-links">
-      <button class="sign-out" id="connections" type="button">connections</button>
-      <button class="sign-out" id="sign-out" type="button">sign out</button>
-    </div>
+    <!-- The dock: shopping, today., add, search (each moved in here by its
+         script), then connections and sign out. -->
+    <nav class="dock" id="dock" aria-label="lifeOS">
+      <button class="sl-btn" id="connections" type="button" title="Connections" aria-label="Connections">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      </button>
+      <button class="sl-btn" id="sign-out" type="button" title="Sign out" aria-label="Sign out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </nav>
   </div>
 
   <section class="sheet" id="sheet" aria-hidden="true">
@@ -350,7 +355,10 @@
       for (const ms of [0, 600, 1500]) setTimeout(() => f.contentWindow?.postMessage({ foodTab: 'shopping' }, location.origin), ms);
       window.lifeosOpen?.('food');
     };
-    document.body.append(shopBtn);
+    // Into the dock, in order, ahead of connections and sign out.
+    const dock = document.getElementById('dock');
+    const searchBtn = [...document.querySelectorAll('.sl-btn')].find(b => b.title.startsWith('Search'));
+    dock.prepend(...[shopBtn, document.querySelector('.td-btn'), document.querySelector('.cap-btn'), searchBtn].filter(Boolean));
     // Back from renewing Google's sign-in (google.js): carry on where it was.
     // today. never opens by itself; the sun button (or T) opens it.
     const reply = window.lifeosGoogleReply ? google.takeReply(window.lifeosGoogleReply) : null;
