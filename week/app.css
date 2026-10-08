@@ -1,0 +1,78 @@
+/* week. — its look, inside its own shadow root (see /lifeos/embed.js). */
+:host { display:block; height:100%; }
+.page { position:relative; min-height:100%; }
+
+    /* lifeOS. tokens; each app's card takes that app's colour */
+    :host {
+      --bg:#F1E8F2; --surface:#fffdf8; --input:#f0ece3; --line:#e5dfd0; --line-strong:#ddd8cc;
+      --text:#2c2218; --muted:#6b6055; --dim:#a8a295; --danger:#b54e4e; --good:#4a7c4a;
+      --logo:#5a4fa0; --accent:#7d6fd6; --on-accent:#fff;
+      --food:#4a7c4a; --train:#c45a3a; --breathe:#c08020; --money:#7a3e5a; --tasks:#2f8a84; --places:#b8436d;
+      --shadow:0 1px 3px rgba(44,34,24,.06); --glow:0; /* light mode is a plain background; the glow is dark mode only */
+      --disp:var(--hub-head, 'Lora', Georgia, serif);
+      --body:var(--hub-body, 'Source Sans 3', system-ui, -apple-system, sans-serif);
+      color-scheme:light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :host {
+        --bg:#1a1e1a; --surface:#232823; --input:#2e342e; --line:#3a423a; --line-strong:#434b43;
+        --text:#ebe8de; --muted:#a8a89c; --dim:#6b7568; --danger:#c96b6b; --good:#6bba6b;
+        --logo:#c9c1ff; --accent:#b4a9ff; --on-accent:#1a1e1a;
+        --food:#8fc08f; --train:#e8a085; --breathe:#e0b870; --money:#c89dc0; --tasks:#8fd0c9; --places:#f0a8c4;
+        --shadow:0 1px 4px rgba(0,0,0,.35); --glow:.18;
+        color-scheme:dark;
+      }
+    }
+    *, *::before, *::after { box-sizing:border-box; }
+    .page { margin:0; background:var(--bg); color:var(--text); font-family:var(--body); font-size:16px; line-height:1.45; -webkit-font-smoothing:antialiased;
+      padding:calc(20px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom)); }
+    button, input, textarea { font:inherit; color:inherit; }
+    .glow { position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none; }
+    .glow::before, .glow::after { content:""; position:absolute; width:80vmax; height:80vmax; border-radius:50%; opacity:var(--glow); animation:drift 18s ease-in-out infinite alternate; }
+    .glow::before { left:-40vmax; top:-30vmax; background:radial-gradient(circle, var(--accent) 0%, transparent 62%); }
+    .glow::after { right:-45vmax; bottom:-40vmax; background:radial-gradient(circle, var(--breathe) 0%, transparent 62%); animation-duration:23s; animation-direction:alternate-reverse; }
+    @keyframes drift { to { transform:translate(12vmax, 10vmax) scale(1.15); } }
+    @media (prefers-reduced-motion: reduce) { .glow::before, .glow::after { animation:none; } }
+
+    main { position:relative; z-index:1; max-width:860px; margin:0 auto; display:grid; gap:22px; }
+    header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .logo { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:2.2rem; letter-spacing:-.03em; line-height:1; color:var(--logo); margin:0; }
+    .logo .dot { font-style:normal; color:var(--accent); }
+    .weeknav { margin-left:auto; display:flex; align-items:center; gap:6px; }
+    .weeknav button { width:36px; height:36px; border-radius:10px; border:1px solid var(--line); background:var(--surface); color:var(--muted); cursor:pointer; font-size:18px; line-height:1; }
+    .weeknav button:disabled { opacity:.4; cursor:default; }
+    .range { font-weight:600; min-width:13ch; text-align:center; font-variant-numeric:tabular-nums; }
+    .label { font-size:.75rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:0 2px 8px; }
+
+    .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap:12px; }
+    .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:14px 16px 16px; display:grid; gap:6px; align-content:start; min-width:0; }
+    .card h2 { margin:0; font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:1.05rem; color:var(--c); }
+    .card h2 .dot { font-style:normal; }
+    .big { font-family:var(--disp); font-weight:600; font-size:2rem; line-height:1.05; font-variant-numeric:tabular-nums; }
+    .big small { font-family:var(--body); font-size:.95rem; font-weight:500; color:var(--muted); margin-left:4px; }
+    .lines { margin:0; padding:0; list-style:none; display:grid; gap:2px; color:var(--muted); font-size:.92rem; }
+    .lines b { color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
+    .up { color:var(--danger); } .down { color:var(--good); }
+    .card.muted .big { color:var(--dim); }
+    .card .err { color:var(--dim); font-size:.88rem; }
+    .loading { color:var(--dim); font-size:.9rem; }
+
+    .review { background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); padding:18px; display:grid; gap:14px; }
+    .review h2 { margin:0; font-family:var(--disp); font-weight:600; font-size:1.3rem; }
+    .q label { display:block; font-weight:600; font-size:.92rem; margin-bottom:6px; }
+    .q textarea { width:100%; min-height:76px; resize:vertical; background:var(--input); border:1px solid var(--line-strong); border-radius:10px; padding:10px 12px; line-height:1.45; outline:none; }
+    .q textarea:focus { border-color:var(--accent); }
+    .rating { display:flex; flex-wrap:wrap; gap:6px; }
+    .rating button { width:40px; height:40px; border-radius:10px; border:1px solid var(--line); background:var(--input); cursor:pointer; font-weight:700; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .rating button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+    .status { font-size:.85rem; color:var(--dim); min-height:1.2em; }
+    .status.err { color:var(--danger); }
+
+    .past { display:grid; gap:8px; }
+    .past button { text-align:left; display:grid; grid-template-columns:auto 2.4rem minmax(0,1fr); gap:12px; align-items:baseline; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:10px 14px; cursor:pointer; }
+    .past .when { font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .past .score { font-weight:700; color:var(--logo); font-variant-numeric:tabular-nums; }
+    .past .gist { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .note { background:var(--surface); border:1px dashed var(--line-strong); border-radius:12px; padding:12px 14px; font-size:.92rem; color:var(--muted); }
+    :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  

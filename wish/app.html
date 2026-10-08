@@ -1,0 +1,46 @@
+<div class="page">  <div class="glow" aria-hidden="true"></div>
+  <main>
+    <h1 class="logo">wish<span class="dot">.</span></h1>
+    <nav class="tabs" id="tabs" aria-label="Lists"></nav>
+    <div class="summary" id="summary"></div>
+    <div id="notice"></div>
+    <section class="list" id="open" aria-label="Wanted"></section>
+    <section id="done-wrap" hidden>
+      <button type="button" class="section-head" id="done-toggle" aria-expanded="false"></button>
+      <div class="list" id="done" hidden></div>
+    </section>
+  </main>
+
+  <button type="button" class="fab" id="add" aria-label="Add an item" title="Add (N)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+
+  <dialog id="item-dlg" aria-labelledby="item-title">
+    <form class="sheet" id="item-form" method="dialog">
+      <h2 id="item-title">Add</h2>
+      <div class="f"><label for="f-url">Link</label><input class="field" id="f-url" type="url" inputmode="url" placeholder="Paste a shop link to fill in the rest" autocomplete="off"></div>
+      <p class="hint" id="f-hint"></p>
+      <div class="preview" id="f-preview" hidden><img id="f-img" alt=""><span class="hint" id="f-site"></span></div>
+      <div class="f"><label for="f-name">Name</label><input class="field" id="f-name" required autocomplete="off"></div>
+      <div class="row">
+        <div class="f"><label for="f-price">Price (£)</label><input class="field" id="f-price" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
+      </div>
+      <div class="f"><label>How much do I want it?</label><div class="chips" id="f-priority"></div></div>
+      <div class="f" id="f-status-wrap"><label>Status</label><div class="chips" id="f-status"></div></div>
+      <div class="f"><label for="f-notes">Notes</label><textarea class="field" id="f-notes" placeholder="Size, colour, where else to look…"></textarea></div>
+      <div class="foot">
+        <button type="button" class="btn danger" id="f-delete">Delete</button>
+        <button type="button" class="btn" id="f-cancel">Cancel</button>
+        <button class="btn primary" id="f-save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="person-dlg" aria-labelledby="person-title">
+    <form class="sheet" id="person-form" method="dialog">
+      <h2 id="person-title">Add someone</h2>
+      <div class="f"><label for="p-name">Name</label><input class="field" id="p-name" required autocomplete="off"></div>
+      <div class="foot"><button type="button" class="btn" id="p-cancel">Cancel</button><button class="btn primary">Save</button></div>
+    </form>
+  </dialog>
+</div>

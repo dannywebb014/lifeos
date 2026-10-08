@@ -1,0 +1,31 @@
+<div class="page">  <div class="glow" aria-hidden="true"></div>
+  <main>
+    <header>
+      <h1 class="logo">week<span class="dot">.</span></h1>
+      <div class="weeknav">
+        <button type="button" id="prev" aria-label="Previous week">‹</button>
+        <span class="range" id="range"></span>
+        <button type="button" id="next" aria-label="Next week">›</button>
+      </div>
+    </header>
+
+    <section>
+      <p class="label">The week in numbers</p>
+      <div class="cards" id="cards"></div>
+    </section>
+
+    <section class="review" aria-labelledby="review-title">
+      <h2 id="review-title">How was it?</h2>
+      <div class="q"><label>Overall, out of 10</label><div class="rating" id="rating"></div></div>
+      <div class="q"><label for="went_well">What went well?</label><textarea id="went_well" data-field="went_well"></textarea></div>
+      <div class="q"><label for="didnt">What didn’t?</label><textarea id="didnt" data-field="didnt"></textarea></div>
+      <div class="q"><label for="next_three">Top three for next week</label><textarea id="next_three" data-field="next_three" placeholder="1.&#10;2.&#10;3."></textarea></div>
+      <p class="status" id="status" role="status"></p>
+    </section>
+
+    <section>
+      <p class="label">Past weeks</p>
+      <div class="past" id="past"></div>
+    </section>
+  </main>
+</div>
