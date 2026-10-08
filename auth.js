@@ -48,8 +48,25 @@ function savedSession() {
 // deletes it straight away, and this is how that's told apart from "never signed in".
 const hadSession = !!savedSession()?.refresh_token;
 
+// supabase-js normally makes every page on the site take turns through one
+// browser-wide lock while it reads or renews the sign-in. On iPhone a page
+// can be frozen while holding it (a background tab, the home-screen app
+// paused, a hidden frame), and then every other page waits on it for good:
+// apps stay blank and sign-in does nothing. So each page takes turns only
+// with itself. Two pages renewing at once is fine: Supabase accepts the same
+// renewal again for a few seconds.
+const queues = {};
+async function pageLock(name, _timeout, fn) {
+  const before = queues[name] || Promise.resolve();
+  let release;
+  const mine = new Promise((r) => { release = r; });
+  queues[name] = before.then(() => mine);
+  await before;
+  try { return await fn(); } finally { release(); }
+}
+
 // One client per page, however many scripts import this file.
-export const supabase = (globalThis.__hubSupabase ||= createClient(SUPABASE_URL, SUPABASE_ANON_KEY));
+export const supabase = (globalThis.__hubSupabase ||= createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { lock: pageLock } }));
 
 // Only addresses on this site may be returned to after signing in.
 export function safeNext(raw) {
@@ -106,7 +123,20 @@ export async function requireAuth({ allowDemo = false } = {}) {
   if (allowDemo && new URLSearchParams(location.search).has("demo")) return null;
   hide();
   let session = null;
-  try { session = await verifiedSession(); } catch (err) { console.error("Checking the sign-in failed:", err); }
+  // A check that breaks (e.g. two pages renewing the sign-in at once and one
+  // timing out waiting for the other) isn't Supabase saying "signed out": try
+  // once more, then trust the two-factor session saved here, as when offline.
+  for (let attempt = 0; attempt < 2 && !session; attempt++) {
+    try { session = await verifiedSession(); break; } catch (err) {
+      console.error("Checking the sign-in failed:", err);
+      lastReason = `the sign-in check broke (${err?.message || err})`;
+      if (attempt === 0) await wait(800);
+    }
+  }
+  if (!session && lastReason.startsWith("the sign-in check broke")) {
+    const saved = savedSession();
+    if (saved?.refresh_token && claim(saved.access_token, "aal") === "aal2") session = saved;
+  }
   if (session) {
     show();
     // Signed out in another tab or app: follow it here too.

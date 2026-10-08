@@ -123,6 +123,7 @@
 
     <p class="who" id="who" hidden></p>
     <p class="why" id="why" hidden></p>
+    <button type="button" class="link" id="reset-device">Trouble signing in? Reset this device</button>
   </main>
 
   <script type="module">
@@ -153,13 +154,16 @@
         $("why").hidden = false;
       }
     } catch { /* nothing recorded */ }
-    const message = (err) => {
+    // Plain words for the usual problems, with what was actually said kept in
+    // brackets, so an unexpected error is never dressed up as a common one.
+    // The code wording only applies where a code was entered.
+    const message = (err, { code = false } = {}) => {
       const m = err?.message || String(err);
       if (/invalid login credentials/i.test(m)) return "That email and password don’t match.";
-      if (/invalid totp|invalid.*code|expired/i.test(m)) return "That code didn’t work. Codes change every 30 seconds, so try the current one.";
+      if (code && /invalid totp|mfa_verification_failed|invalid.*code/i.test(m)) return "That code didn’t work. Codes change every 30 seconds, so try the current one.";
       if (/rate limit|too many/i.test(m)) return "Too many tries. Wait a minute, then try again.";
-      if (/fetch|network/i.test(m)) return "Couldn’t reach the server. Check your connection.";
-      return m;
+      if (/fetch|network|load failed/i.test(m)) return "Couldn’t reach the server. Check your connection.";
+      return `Something went wrong signing in (${m}). If it keeps happening, use Reset this device below.`;
     };
     async function busy(btn, fn) {
       btn.disabled = true;
@@ -200,7 +204,7 @@
         ({ error } = await supabase.auth.mfa.challengeAndVerify({ factorId: id, code }));
         if (!error) break;
       }
-      if (error) { errBox.textContent = message(error); codeInput.select(); return; }
+      if (error) { errBox.textContent = message(error, { code: true }); codeInput.select(); return; }
       done();
     }
 
@@ -224,6 +228,17 @@
       $("who").hidden = true;
       step("password-step");
     }));
+
+    // Clears this device's saved sign-in and lifeOS's saved copy of its files,
+    // then starts again. Nothing in Supabase changes, and app data (tasks,
+    // settings) stays; only the sign-in is forgotten.
+    $("reset-device").addEventListener("click", async () => {
+      $("reset-device").textContent = "Resetting…";
+      try { for (const k of Object.keys(localStorage)) if (/^sb-.*-auth-token/.test(k)) localStorage.removeItem(k); } catch { /* blocked */ }
+      try { for (const r of await navigator.serviceWorker?.getRegistrations?.() || []) if (!(await r.pushManager?.getSubscription?.())) await r.unregister(); } catch { /* none */ }
+      try { for (const k of await caches.keys()) await caches.delete(k); } catch { /* none */ }
+      location.replace(location.pathname + location.search);
+    });
 
     // Already fully signed in: carry on. Signed in with only a password: ask for the code.
     try {

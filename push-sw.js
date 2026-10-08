@@ -23,7 +23,7 @@ self.addEventListener("activate", (e) => e.waitUntil((async () => {
 })()));
 
 async function save(req, res) {
-  if (!res || !(res.ok || res.type === "opaque")) return;
+  if (!res || res.redirected || !(res.ok || res.type === "opaque")) return;
   const c = await caches.open(CACHE);
   await c.put(req, res);
   const keys = await c.keys();
@@ -40,7 +40,13 @@ self.addEventListener("fetch", (e) => {
     e.respondWith((async () => {
       // Saved without the #hash or ?query, so any address of the page finds it.
       const key = url.origin + url.pathname;
-      const network = fetch(req).then((res) => { if (res.ok) save(key, res.clone()); return res; });
+      const network = fetch(req).then((res) => {
+        // A redirected page can't be handed back as it is (iPhone Safari won't
+        // show it), so the browser is sent to where it ended up instead.
+        if (res.redirected) return Response.redirect(res.url, 302);
+        if (res.ok) save(key, res.clone());
+        return res;
+      });
       try {
         const res = await Promise.race([network, new Promise((r) => setTimeout(r, 2500))]);
         if (res) return res;

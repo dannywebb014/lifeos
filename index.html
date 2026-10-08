@@ -648,15 +648,15 @@
     // tasks. and food. are the likeliest first taps, so they load quietly a
     // moment after the picker appears and are ready when tapped (frames stay
     // hidden until opened). Skipped on a connection set to save data.
-    setTimeout(() => {
-      if (navigator.connection?.saveData) return;
-      for (const id of ['tasks', 'food']) {
-        const app = APPS.find(x => x.id === id);
-        // ?preload: tasks. holds back anything that would take over the page
-        // (a trip to Google) until it's opened, which open() tells it.
-        if (app && !frames[id]) frameFor(app, '', app.url + '?preload');
-      }
-    }, 1200);
+    // One at a time and well after the picker's own sign-in check, so the
+    // pages never all renew the sign-in at the same moment.
+    ['tasks', 'food'].forEach((id, i) => setTimeout(() => {
+      if (navigator.connection?.saveData || document.hidden) return;
+      const app = APPS.find(x => x.id === id);
+      // ?preload: tasks. holds back anything that would take over the page
+      // (a trip to Google) until it's opened, which open() tells it.
+      if (app && !frames[id]) frameFor(app, '', app.url + '?preload');
+    }, 2500 + i * 3000));
   </script>
   <script>
     // Opens fast and works with no signal (push-sw.js keeps lifeOS's files here, and shows notifications).
