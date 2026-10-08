@@ -69,8 +69,9 @@ const SOURCES = [
 
 // Open tasks from lifeOS, Craft (the connections saved in tasks.) and Todoist.
 async function tasks() {
-  const settings = read("tasks.settings") || {};
-  const { loadTasks } = await import("./shared/hubtasks.js?v=4");
+  const { loadTasks, effective } = await import("./shared/hubtasks.js?v=5");
+  // A list trying lifeOS tasks has no Craft or Todoist here.
+  const settings = effective(read("tasks.settings") || {});
   const spaceName = { my: "my space.", work: "work.", todoist: "joint." };
   const out = (await loadTasks()).map(t => ({ title: t.text, sub: `${spaceName[t.spaceId] || t.spaceId}${t.date ? ` · ${t.date}` : ""}`, text: t.text, href: `${BASE}/taskhub/` }));
   const key = (k) => String(k || "").replace(/[\s ​-‍﻿]/g, "");

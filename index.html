@@ -285,13 +285,13 @@
 
   <script type="module">
     // Search across every app (S, / or ⌘K), with results opening in their tab.
-    import { mountSpotlight } from "/lifeos/spotlight.js?v=7";
+    import { mountSpotlight } from "/lifeos/spotlight.js?v=8";
     // Add anything (A), from beside search: tasks, shopping, wish. (capture.js).
-    import { mountCapture } from "/lifeos/capture.js?v=8";
+    import { mountCapture } from "/lifeos/capture.js?v=9";
     // today. (T), beside add: what's on today in each app.
-    import { mountToday } from "/lifeos/today.js?v=9";
+    import { mountToday } from "/lifeos/today.js?v=10";
     // Every sign-in and connection in one place, from the foot of the page.
-    import { mountConnections } from "/lifeos/connections.js?v=7";
+    import { mountConnections } from "/lifeos/connections.js?v=8";
     import * as google from "/lifeos/google.js?v=1";
     import { signOut } from "/lifeos/auth.js";
 
@@ -327,6 +327,11 @@
         .then(r => r.syncFromGoogle(google.auth().token)).catch(err => console.error('Reminders:', err));
     };
     syncReminders();
+    // Lists trying lifeOS tasks (connections.): this device's copy of the
+    // switch is brought up to date, and the task apps reload if it changed.
+    import('/lifeos/shared/hubtasks.js?v=5').then(h => h.syncMode()).then(changed => {
+      if (changed) ['tasks', 'cal'].forEach(id => window.lifeosReload?.(id));
+    });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncReminders(); });
     if (params.has('add')) {
       capture.open(params.get('add') || '');

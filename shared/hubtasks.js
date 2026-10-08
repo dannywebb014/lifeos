@@ -21,8 +21,56 @@ const COLUMNS = "id,space,text,date,priority,repeat,household_id,created_at";
 const toDb = (spaceId) => (spaceId === "todoist" ? "joint" : spaceId);
 const fromDb = (space) => (space === "joint" ? "todoist" : space);
 
+// ─── Trying lifeOS tasks in place of Craft or Todoist ────────────────
+// A space can be switched to lifeOS while its Craft or Todoist connection
+// stays saved (connections., shared/tasktrial.js). The switch is kept with
+// the account (app_state "tasks": { lifeos: [space ids], copies }) so every
+// device agrees, and a copy on this device ("tasks.lifeos") lets the apps
+// read it without waiting. While on, the apps treat that space as having no
+// connection: nothing is read from or sent to Craft or Todoist for it.
+const MODE_KEY = "tasks.lifeos";
+export function lifeosSpaces() {
+  try { const v = JSON.parse(localStorage.getItem(MODE_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+export const inLifeosMode = (spaceId) => lifeosSpaces().includes(spaceId);
+const keepMode = (ids) => { try { localStorage.setItem(MODE_KEY, JSON.stringify(ids)); } catch { /* private mode */ } };
+
+// The task settings as the apps should use them: a space trying lifeOS
+// loses its connection here (the saved one is untouched).
+export function effective(settings) {
+  const on = lifeosSpaces();
+  if (!on.length) return settings || {};
+  const s = { ...(settings || {}), spaces: { ...(settings?.spaces || {}) } };
+  for (const id of on) { if (id === "todoist") s.todoist = {}; else delete s.spaces[id]; }
+  return s;
+}
+
+export async function trialState() {
+  const { data, error } = await supabase.from("app_state").select("data").eq("app", "tasks").maybeSingle();
+  if (error) throw new Error(error.message);
+  return { lifeos: [], copies: {}, ...(data?.data || {}) };
+}
+export async function saveTrialState(state) {
+  check(await supabase.from("app_state").upsert({ app: "tasks", data: state, updated_at: new Date().toISOString() }, { onConflict: "user_id,app" }));
+  keepMode(state.lifeos);
+}
+// Brings this device's copy of the switch up to date. True if it changed.
+export async function syncMode() {
+  try {
+    const { lifeos } = await trialState();
+    const before = JSON.stringify(lifeosSpaces());
+    keepMode(lifeos);
+    return before !== JSON.stringify(lifeos);
+  } catch (err) { console.warn("Task trial setting:", err.message); return false; }
+}
+// Copies made when a space switched over, deleted again if it switches back.
+export async function deleteOpen(ids) {
+  if (ids.length) check(await supabase.from(TABLE).delete().in("id", ids).is("done_at", null));
+}
+
 // Where a space's new tasks go on this device: "craft", "todoist" or "lifeos".
 export function sourceOf(settings, spaceId) {
+  if (inLifeosMode(spaceId)) return "lifeos";
   if (spaceId === "todoist") return String(settings?.todoist?.token || "").trim() ? "todoist" : "lifeos";
   return settings?.spaces?.[spaceId]?.url ? "craft" : "lifeos";
 }

@@ -20,7 +20,7 @@
 import { supabase } from "./auth.js";
 import * as google from "./google.js?v=1";
 import * as todoist from "./shared/todoist.js?v=19";
-import * as hub from "./shared/hubtasks.js?v=4";
+import * as hub from "./shared/hubtasks.js?v=5";
 
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
 const pad = (n) => String(n).padStart(2, "0");
@@ -92,7 +92,8 @@ const shortDay = (iso) => new Date(`${iso}T12:00`).toLocaleDateString("en-GB", {
 // left over is kept in `leftovers`, for moving them all to tomorrow.
 let leftovers = [];   // { spaceId, id, text, todoist?, builtin? }
 async function tasks({ day, tomorrow }) {
-  const settings = read("tasks.settings") || {};
+  // A list trying lifeOS tasks has no Craft or Todoist here (hubtasks.js).
+  const settings = hub.effective(read("tasks.settings") || {});
   const today = isoDay(new Date()), shown = isoDay(day);
   let due = 0, late = 0, high = 0, any = false;
   const found = [], listed = [];
@@ -166,7 +167,8 @@ async function tasks({ day, tomorrow }) {
 // "move all to tomorrow" does: Craft by date, Todoist keeping a repeat, and
 // any time block on the calendar along with it. Resolves { moved, failed }.
 async function moveLeftovers() {
-  const settings = read("tasks.settings") || {};
+  // A list trying lifeOS tasks has no Craft or Todoist here (hubtasks.js).
+  const settings = hub.effective(read("tasks.settings") || {});
   const date = isoDay(addDays(startOfToday(), 1));
   let moved = 0;
   const failed = [], done = [];

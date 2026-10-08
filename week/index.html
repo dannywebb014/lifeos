@@ -292,7 +292,9 @@
 
     // Tasks finished: lifeOS, Craft (the connections saved in tasks.) and Todoist.
     async function tasks() {
-      const settings = read("tasks.settings") || {};
+      // A list trying lifeOS tasks has no Craft or Todoist here (hubtasks.js).
+      const { effective } = await import("/lifeos/shared/hubtasks.js?v=5");
+      const settings = effective(read("tasks.settings") || {});
       const from = monday, to = addDays(monday, 7);
       let craftDone = 0, craftUnknown = 0, todoistDone = 0, ownDone = 0;
       const problems = [];
@@ -314,7 +316,7 @@
         } catch (err) { problems.push(err.message); }
       }));
       try {
-        const { countDone } = await import("/lifeos/shared/hubtasks.js?v=4");
+        const { countDone } = await import("/lifeos/shared/hubtasks.js?v=5");
         ownDone = await countDone(from, to);
       } catch (err) { problems.push(`lifeOS (${err.message})`); }
       const token = cleanKey(settings.todoist?.token);

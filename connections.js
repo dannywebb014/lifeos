@@ -12,12 +12,14 @@
 //     or remove one
 //   - Google Calendar: calendar.'s token and client ID (google.js), renewed here
 //   - Craft (my space., work.) and Todoist (joint.): "tasks.settings", which
-//     tasks., media. and today. all read
+//     tasks., media. and today. all read. Each has a switch to try keeping
+//     that list in lifeOS instead (shared/tasktrial.js), connection kept.
 // `saved` runs after a change, so the picker can reload the apps that use it.
 
 import { supabase } from "./auth.js";
 import * as google from "./google.js?v=1";
 import * as reminders from "./shared/reminders.js?v=2";
+import * as hub from "./shared/hubtasks.js?v=5";
 
 // The public half of the key the reminder sender signs notifications with
 // (its private half is a Supabase secret).
@@ -67,6 +69,9 @@ const CSS = `
   .cn-switch[aria-checked=true] { background:#4a8a4a; }
   .cn-switch[aria-checked=true]::after { transform:translateX(18px); }
   .cn-switch:disabled { opacity:.5; cursor:wait; }
+  .cn-trial { margin-top:10px; padding-top:8px; border-top:1px dashed var(--sl-line); }
+  .cn-trial[hidden] { display:none; }
+  .cn-trial .cn-top span { flex:1; font-size:.9rem; font-weight:600; }
   .cn-switch:focus-visible { outline:2px solid var(--life-accent); outline-offset:2px; }
   @media (prefers-reduced-motion: reduce) { .cn-switch, .cn-switch::after { transition:none; } }
   .cn-auth { display:flex; align-items:center; gap:8px; font-size:.88rem; }
@@ -107,6 +112,7 @@ export function mountConnections({ saved = () => {} } = {}) {
     const s = tasksSettings().spaces?.[id];
     // No connection is fine: the space keeps its tasks in lifeOS (shared/hubtasks.js).
     if (!s?.url) return { ok: true, text: "Not connected · tasks kept in lifeOS" };
+    if (hub.inLifeosMode(id)) return { ok: true, text: "Connected · trying lifeOS tasks" };
     const headers = { Accept: "application/json", ...(cleanKey(s.key) ? { Authorization: `Bearer ${cleanKey(s.key)}` } : {}) };
     try {
       const res = await fetch(`${craftBase(s.url)}/connection`, { headers });
@@ -120,6 +126,7 @@ export function mountConnections({ saved = () => {} } = {}) {
   async function checkTodoist() {
     const t = cleanKey(tasksSettings().todoist?.token);
     if (!t) return { ok: true, text: "Not connected · tasks kept in lifeOS, shared with your household" };
+    if (hub.inLifeosMode("todoist")) return { ok: true, text: "Connected · trying lifeOS tasks" };
     try {
       const res = await fetch("https://api.todoist.com/api/v1/projects?limit=1", { headers: { Authorization: `Bearer ${t}` } });
       return res.ok ? { ok: true, text: "Connected" } : { ok: false, text: res.status === 401 || res.status === 403 ? "Token refused" : `Todoist ${res.status}` };
@@ -349,6 +356,51 @@ export function mountConnections({ saved = () => {} } = {}) {
     return box;
   }
 
+  // The trial switch under a Craft or Todoist box: keep this list in lifeOS
+  // for now, with the connection left as it is.
+  function trialRow(spaceId, from) {
+    const row = document.createElement("div");
+    row.className = "cn-trial";
+    row.dataset.space = spaceId;
+    row.innerHTML = `<div class="cn-top"><span>Try lifeOS tasks instead</span>
+      <button type="button" class="cn-switch" role="switch" aria-checked="false" aria-label="Keep this list in lifeOS"></button></div>
+      <div class="cn-note" data-msg></div>`;
+    const sw = row.querySelector(".cn-switch"), msg = row.querySelector("[data-msg]");
+    row.paint = () => {
+      const on = hub.inLifeosMode(spaceId);
+      sw.setAttribute("aria-checked", String(on));
+      msg.textContent = on
+        ? `On every device: this list is kept in lifeOS, and ${from} is left alone. Turn off to go back to ${from}.`
+        : `Copies the open tasks into lifeOS and uses them there instead. ${from} isn’t changed, and you can switch back.`;
+    };
+    row.paint();
+    sw.onclick = async () => {
+      const on = sw.getAttribute("aria-checked") !== "true";
+      if (!on && !confirm(`Go back to ${from} for this list?\n\nThe copies made from ${from} are removed and ${from}'s own tasks show again. Tasks you added during the trial stay in lifeOS. Anything ticked off during the trial is still open in ${from}.`)) return;
+      sw.disabled = true;
+      msg.textContent = on ? `Copying your ${from} tasks into lifeOS…` : `Switching back to ${from}…`;
+      try {
+        const trial = await import("./shared/tasktrial.js?v=1");
+        if (on) {
+          const r = await trial.start(spaceId);
+          row.paint();
+          msg.textContent = `Copied ${r.copied} task${r.copied === 1 ? "" : "s"} into lifeOS; new ones go there too.`
+            + (r.repeatsLost ? ` ${r.repeatsLost} repeating task${r.repeatsLost === 1 ? "" : "s"} came over without the repeat (Craft doesn’t share it): set it again in tasks.` : "");
+        } else {
+          await trial.stop(spaceId);
+          row.paint();
+          msg.textContent = `Back on ${from}.`;
+        }
+        dirty = true;
+      } catch (err) {
+        console.error("Task trial:", err);
+        msg.textContent = `Couldn’t switch: ${err.message}. Nothing was changed in ${from}.`;
+      }
+      sw.disabled = false;
+    };
+    return row;
+  }
+
   function craftBox(space) {
     const box = document.createElement("div");
     box.className = "cn-box";
@@ -360,6 +412,9 @@ export function mountConnections({ saved = () => {} } = {}) {
         <input data-k="url" placeholder="API URL (https://connect.craft.do/links/…)" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="${esc(space.label)} API URL">
         <input data-k="key" type="password" placeholder="API key, if the connection has one" autocomplete="off" aria-label="${esc(space.label)} API key">
         <div class="cn-row"><button type="button" class="cn-b" data-save>Save and check</button></div></div>`;
+    const trial = trialRow(space.id, "Craft");
+    trial.hidden = !s.url;
+    box.append(trial);
     const f = box.querySelector(".cn-f"), url = f.querySelector("[data-k=url]"), key = f.querySelector("[data-k=key]");
     url.value = s.url || ""; key.value = s.key || "";
     const check = () => checkCraft(space.id).then(r => status(box.querySelector(".cn-st"), r));
@@ -389,6 +444,9 @@ export function mountConnections({ saved = () => {} } = {}) {
       <button type="button" class="cn-more" data-edit>${t ? "Change" : "Set up"}</button>
       <div class="cn-f" hidden><input type="password" placeholder="API token" autocomplete="off" aria-label="Todoist API token">
         <div class="cn-row"><button type="button" class="cn-b" data-save>Save and check</button></div></div>`;
+    const trial = trialRow("todoist", "Todoist");
+    trial.hidden = !t;
+    box.append(trial);
     const f = box.querySelector(".cn-f"), input = f.querySelector("input");
     input.value = t;
     const check = () => checkTodoist().then(r => status(box.querySelector(".cn-st"), r));
@@ -419,6 +477,8 @@ export function mountConnections({ saved = () => {} } = {}) {
     dirty = false;
     list.replaceChildren(lifeosBox(), notifyBox(), googleBox(), ...SPACES.map(craftBox), todoistBox(), defaultBox());
     back.hidden = false;
+    // The trial switches as last set on any device.
+    hub.syncMode().then(() => list.querySelectorAll(".cn-trial").forEach(r => r.paint()));
   }
   function close() {
     back.hidden = true;

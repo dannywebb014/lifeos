@@ -23,7 +23,7 @@ import { supabase } from "./auth.js";
 import { shoppingList } from "./shopadd.js?v=2";
 import { parseTasks, SPACES } from "./shared/parse.js?v=17";
 import * as todoist from "./shared/todoist.js?v=19";
-import * as hub from "./shared/hubtasks.js?v=4";
+import * as hub from "./shared/hubtasks.js?v=5";
 import * as speech from "./shared/speech.js?v=15";
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -111,7 +111,8 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
   // ── What it needs: the shopping list, the people on gift lists, the task parser ──
   const shop = shoppingList();
   let people = [], ready = null, problems = [];
-  const settings = () => read("tasks.settings") || {};
+  // A list trying lifeOS tasks has no Craft or Todoist here (hubtasks.js).
+  const settings = () => hub.effective(read("tasks.settings") || {});
   function load() {
     problems = [];
     return ready = Promise.all([
