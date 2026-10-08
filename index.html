@@ -247,6 +247,8 @@
       touch-action: none; display: none;
     }
     body.open .edge { display: block; }
+    /* the shopping list, one tap away: beside today., add and search */
+    .sl-btn.shop-btn { right: 166px; }
     /* search is for the picker; an open app keeps its own top-right corner */
     body.open .sl-btn { display: none; }
     .sheet.swiping { transition: none; }
@@ -280,7 +282,7 @@
     // Search across every app (S, / or ⌘K), with results opening in their tab.
     import { mountSpotlight } from "/lifeos/spotlight.js?v=7";
     // Add anything (A), from beside search: tasks, shopping, wish. (capture.js).
-    import { mountCapture } from "/lifeos/capture.js?v=7";
+    import { mountCapture } from "/lifeos/capture.js?v=8";
     // today. (T), beside add: what's on today in each app.
     import { mountToday } from "/lifeos/today.js?v=7";
     // Every sign-in and connection in one place, from the foot of the page.
@@ -335,6 +337,20 @@
       open: (id, url) => (url ? window.lifeosOpenUrl?.(url) : window.lifeosOpen?.(id)),
       setup: () => connections.open(),
     });
+    // The shopping list in one tap: food. opened at its shopping tab. A food.
+    // already open (or loaded ahead) is told to switch rather than reloaded;
+    // it's told a few times in case it's still starting up.
+    const shopBtn = document.createElement('button');
+    shopBtn.type = 'button'; shopBtn.className = 'sl-btn shop-btn';
+    shopBtn.title = 'Shopping list'; shopBtn.setAttribute('aria-label', 'Shopping list');
+    shopBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>';
+    shopBtn.onclick = () => {
+      const f = document.querySelector('iframe[title="food."]');
+      if (!f) { window.lifeosOpenUrl?.('https://dannywebb014.github.io/foodhub/?tab=shopping'); return; }
+      for (const ms of [0, 600, 1500]) setTimeout(() => f.contentWindow?.postMessage({ foodTab: 'shopping' }, location.origin), ms);
+      window.lifeosOpen?.('food');
+    };
+    document.body.append(shopBtn);
     // Back from renewing Google's sign-in (google.js): carry on where it was.
     // Otherwise today. opens by itself the first time each morning and evening,
     // unless the page was opened to an app or to add something.

@@ -6,7 +6,8 @@
 // A + beside search (top right), or A, opens it. Each line is one thing, and
 // it works out where each goes, shown under the box before anything is added:
 //   - shopping: "buy milk", "get eggs, butter" (a comma makes several), or a
-//     line that is exactly an item on food.'s master list
+//     line that is exactly an item on food.'s master list, or a list of them
+//     ("milk, eggs")
 //   - wish.: "want AirPods" for my wishlist; "… for Sam" (someone on a gift
 //     list) or "gift for Sam: …" for theirs
 //   - tasks.: everything else, read the way tasks. reads dictation (space,
@@ -143,6 +144,9 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     if (/^(?:wish(?:list)?\s*[:\-]|(?:i\s+)?want\s(?!to\b))/i.test(t)) return "wish";
     if (personIn(t)) return "wish";
     if (shop.find(t)) return "shop";
+    // "milk, eggs and bread": a list where every item is on food.'s master list.
+    const parts = t.split(/\s*,\s*|\s+and\s+(?=\S+$)/).filter(Boolean);
+    if (parts.length > 1 && parts.every(p => shop.find(p))) return "shop";
     return "task";
   }
   // The finished thing for a line in a given kind.
