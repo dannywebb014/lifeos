@@ -77,6 +77,9 @@
     .open-app { display:block; text-align:center; font-weight:600; color:var(--accent-strong); font-size:.93rem; }
     .who { font-size:.85rem; color:var(--muted); text-align:center; }
     .why { font-size:.78rem; color:var(--dim); text-align:center; }
+    .row-links { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+    .hint { font-weight:400; color:var(--dim); }
+    .invited { font-size:.9rem; color:var(--accent-strong); text-align:center; font-weight:600; }
     [hidden] { display:none !important; }
   </style>
 </head>
@@ -84,6 +87,7 @@
   <div class="glow" aria-hidden="true"></div>
   <main>
     <p class="title">lifeOS<span class="dot">.</span></p>
+    <p class="invited" id="invited" hidden>You’ve been invited to a lifeOS household. Sign in or create an account to join.</p>
 
     <!-- 1. Email and password -->
     <form class="card" id="password-step" autocomplete="on" hidden>
@@ -92,6 +96,55 @@
       <div><label for="password">Password</label><input class="field" id="password" type="password" autocomplete="current-password" required></div>
       <p class="err" id="password-err" role="alert"></p>
       <button class="btn" id="password-btn">Continue</button>
+      <div class="row-links">
+        <button type="button" class="link" data-go="forgot-step">Forgot password?</button>
+        <button type="button" class="link" data-go="signup-step">Create an account</button>
+      </div>
+    </form>
+
+    <!-- New account: email check, then two-factor as for anyone else -->
+    <form class="card" id="signup-step" autocomplete="on" hidden>
+      <h1>Create your account</h1>
+      <div><label for="su-name">Your name</label><input class="field" id="su-name" autocomplete="name" required></div>
+      <div><label for="su-email">Email</label><input class="field" id="su-email" type="email" autocomplete="username" required></div>
+      <div><label for="su-password">Password <span class="hint">(at least 10 characters)</span></label><input class="field" id="su-password" type="password" autocomplete="new-password" minlength="10" required></div>
+      <p class="err" id="signup-err" role="alert"></p>
+      <button class="btn" id="signup-btn">Create account</button>
+      <button type="button" class="link" data-go="password-step">I already have an account</button>
+    </form>
+
+    <!-- Forgotten password: a link by email -->
+    <form class="card" id="forgot-step" hidden>
+      <h1>Reset your password</h1>
+      <p>We’ll email you a link to choose a new one. You’ll still need your authenticator code.</p>
+      <div><label for="fp-email">Email</label><input class="field" id="fp-email" type="email" autocomplete="username" required></div>
+      <p class="err" id="forgot-err" role="alert"></p>
+      <button class="btn" id="forgot-btn">Email me a link</button>
+      <button type="button" class="link" data-go="password-step">Back to sign in</button>
+    </form>
+
+    <!-- After either: look in your inbox -->
+    <div class="card" id="email-step" hidden>
+      <h1>Check your email</h1>
+      <p id="email-msg"></p>
+      <button type="button" class="link" data-go="password-step">Back to sign in</button>
+    </div>
+
+    <!-- Came from a reset link and passed two-factor: choose the new password -->
+    <form class="card" id="newpass-step" hidden>
+      <h1>Choose a new password</h1>
+      <div><label for="new-password">New password <span class="hint">(at least 10 characters)</span></label><input class="field" id="new-password" type="password" autocomplete="new-password" minlength="10" required></div>
+      <p class="err" id="newpass-err" role="alert"></p>
+      <button class="btn" id="newpass-btn">Save and sign in</button>
+    </form>
+
+    <!-- Came from an invite link: join their household -->
+    <form class="card" id="join-step" hidden>
+      <h1>Join a household</h1>
+      <p id="join-msg"></p>
+      <p class="err" id="join-err" role="alert"></p>
+      <button class="btn" id="join-btn">Join</button>
+      <button type="button" class="link" id="join-skip">Not now</button>
     </form>
 
     <!-- 2a. First time: set up an authenticator -->
@@ -127,23 +180,61 @@
   </main>
 
   <script type="module">
-    import { supabase, safeNext, verifiedSession, REASON_KEY } from "/lifeos/auth.js";
+    import { supabase, safeNext, verifiedSession, REASON_KEY, SIGNIN_PATH } from "/lifeos/auth.js";
 
     const $ = (id) => document.getElementById(id);
-    const next = safeNext(new URLSearchParams(location.search).get("next"));
-    const steps = ["password-step", "enrol-step", "code-step"];
+    const params = new URLSearchParams(location.search);
+    const next = safeNext(params.get("next"));
+    // An invite link (/lifeos/signin/?invite=K7PM4QXR) is joined once signed in.
+    // It rides along in the address of any email link sent from here, as that
+    // may be opened in another browser.
+    const invite = params.get("invite")?.replace(/[^A-Za-z0-9]/g, "").toUpperCase() || "";
+    if (invite) $("invited").hidden = false;
+    const steps = ["password-step", "signup-step", "forgot-step", "email-step", "enrol-step", "code-step", "newpass-step", "join-step"];
     let factorId = null;      // the authenticator being set up
     let factorIds = [];       // every authenticator already set up (a backup device adds one)
+    let recovering = false;   // came from a reset-password link: new password after the code
 
     function step(id) {
       for (const s of steps) $(s).hidden = s !== id;
       const field = $(id).querySelector("input");
       if (field) setTimeout(() => field.focus(), 50);
     }
-    const done = () => {
+    // Where an email link should bring someone back to: here, then on to the same place.
+    const backHere = () => {
+      const q = new URLSearchParams({ next });
+      if (invite) q.set("invite", invite);
+      return `${location.origin}${SIGNIN_PATH}?${q}`;
+    };
+    const finish = () => {
       try { localStorage.removeItem(REASON_KEY); } catch { /* private mode */ }
       location.replace(next);
     };
+    // Fully signed in. A new password or an invite comes first, if there is one.
+    const done = async () => {
+      if (recovering) { step("newpass-step"); return; }
+      if (invite && await showJoin()) return;
+      finish();
+    };
+
+    async function showJoin() {
+      const { data, error } = await supabase.rpc("invite_info", { code: invite });
+      const info = data?.[0];
+      if (error || !info) { $("join-msg").textContent = error ? message(error) : "That invite code wasn’t found. Ask for a new one."; $("join-btn").hidden = true; }
+      else if (info.already_in) return false;
+      else if (!info.usable) { $("join-msg").textContent = "That invite has been used or is more than 7 days old. Ask for a new one."; $("join-btn").hidden = true; }
+      else {
+        const { data: size } = await supabase.rpc("my_household_size");
+        const mine = size?.[0];
+        const others = info.members === 1 ? "1 person" : `${info.members} people`;
+        let text = `${info.inviter} has invited you to their household (${others}). You’ll share recipes, the meal plan, the shopping list and joint. tasks.`;
+        if (mine?.members === 1 && mine.recipes > 0) text += ` Your own ${mine.recipes} recipe${mine.recipes === 1 ? "" : "s"}, meal plan and shopping list will be deleted.`;
+        else if (mine?.members > 1) text += " You’ll leave the household you’re in now.";
+        $("join-msg").textContent = text;
+      }
+      step("join-step");
+      return true;
+    }
 
     // Why this page was shown, in small print, so a surprise sign-out can be traced.
     try {
@@ -163,6 +254,11 @@
       if (code && /invalid totp|mfa_verification_failed|invalid.*code/i.test(m)) return "That code didn’t work. Codes change every 30 seconds, so try the current one.";
       if (/rate limit|too many/i.test(m)) return "Too many tries. Wait a minute, then try again.";
       if (/fetch|network|load failed/i.test(m)) return "Couldn’t reach the server. Check your connection.";
+      if (/signups? not allowed/i.test(m)) return "lifeOS isn’t taking new accounts yet.";
+      if (/email not confirmed/i.test(m)) return "Confirm your email first: open the link we sent you.";
+      if (/should be different/i.test(m)) return "That’s your current password. Choose a new one.";
+      if (/weak|at least|pwned|known to be/i.test(m)) return `Choose a stronger password (${m}).`;
+      if (/expired|invalid.*(link|token)|otp_expired/i.test(m)) return "That email link has expired or was already used. Ask for a new one.";
       return `Something went wrong signing in (${m}). If it keeps happening, use Reset this device below.`;
     };
     async function busy(btn, fn) {
@@ -223,6 +319,70 @@
     for (const [input, form] of [["code", "code-step"], ["enrol-code", "enrol-step"]]) {
       $(input).addEventListener("input", () => { if ($(input).value.replace(/\D/g, "").length === 6) $(form).requestSubmit(); });
     }
+    document.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => {
+      // Carry the email typed so far across.
+      const email = [$("email"), $("su-email"), $("fp-email")].map(f => f.value.trim()).find(Boolean) || "";
+      for (const f of [$("email"), $("su-email"), $("fp-email")]) if (!f.value) f.value = email;
+      step(b.dataset.go);
+    }));
+
+    $("signup-step").addEventListener("submit", (e) => {
+      e.preventDefault();
+      $("signup-err").textContent = "";
+      if ($("su-password").value.length < 10) { $("signup-err").textContent = "Use at least 10 characters for your password."; return; }
+      busy($("signup-btn"), async () => {
+        const email = $("su-email").value.trim();
+        const { data, error } = await supabase.auth.signUp({
+          email, password: $("su-password").value,
+          options: { emailRedirectTo: backHere(), data: { display_name: $("su-name").value.trim() } },
+        });
+        if (error) { $("signup-err").textContent = message(error); return; }
+        // Email checks turned off in Supabase: straight on to two-factor.
+        if (data.session) { try { await afterPassword(); } catch (err) { $("signup-err").textContent = message(err); } return; }
+        // Supabase answers the same way for an email that already has an
+        // account (so nobody can find out who has one); the email they get says so.
+        $("email-msg").textContent = `We’ve sent a link to ${email}. Open it on this device or any other to finish setting up. It may take a minute, and check your junk folder.`;
+        step("email-step");
+      });
+    });
+
+    $("forgot-step").addEventListener("submit", (e) => {
+      e.preventDefault();
+      $("forgot-err").textContent = "";
+      busy($("forgot-btn"), async () => {
+        const email = $("fp-email").value.trim();
+        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: backHere() });
+        if (error) { $("forgot-err").textContent = message(error); return; }
+        $("email-msg").textContent = `If ${email} has a lifeOS account, a link to reset its password is on its way. It may take a minute, and check your junk folder.`;
+        step("email-step");
+      });
+    });
+
+    $("newpass-step").addEventListener("submit", (e) => {
+      e.preventDefault();
+      $("newpass-err").textContent = "";
+      if ($("new-password").value.length < 10) { $("newpass-err").textContent = "Use at least 10 characters for your password."; return; }
+      busy($("newpass-btn"), async () => {
+        const { error } = await supabase.auth.updateUser({ password: $("new-password").value });
+        if (error) { $("newpass-err").textContent = message(error); return; }
+        recovering = false;
+        await done();
+      });
+    });
+
+    $("join-step").addEventListener("submit", (e) => {
+      e.preventDefault();
+      $("join-err").textContent = "";
+      busy($("join-btn"), async () => {
+        const { error } = await supabase.rpc("join_household", { code: invite });
+        if (error) { $("join-err").textContent = error.message; return; }
+        // Apps keep the household on the device for a quick start; forget it.
+        try { for (const k of Object.keys(localStorage)) if (/^(food\.household\.|lifeos\.household)/.test(k)) localStorage.removeItem(k); } catch { /* private mode */ }
+        finish();
+      });
+    });
+    $("join-skip").addEventListener("click", finish);
+
     document.querySelectorAll("[data-switch-user]").forEach(b => b.addEventListener("click", async () => {
       await supabase.auth.signOut({ scope: "local" });
       $("who").hidden = true;
@@ -240,8 +400,28 @@
       location.replace(location.pathname + location.search);
     });
 
+    // Back from an email link (confirming a new account, or a password reset):
+    // Supabase puts the sign-in in the address (#access_token=…&type=…). The
+    // site's client never reads addresses by itself (see auth.js), so it's
+    // taken here and the address tidied straight away. Either way the
+    // authenticator code still comes next.
+    const hash = new URLSearchParams(location.hash.slice(1));
+    let stop = false;
+    if (hash.has("access_token") || hash.has("error_description")) {
+      history.replaceState(null, "", location.pathname + location.search);
+      if (hash.has("error_description")) {
+        step("password-step");
+        $("password-err").textContent = message(new Error(`${hash.get("error_code") || ""} ${hash.get("error_description")}`));
+        stop = true;
+      } else {
+        recovering = hash.get("type") === "recovery";
+        const { error } = await supabase.auth.setSession({ access_token: hash.get("access_token"), refresh_token: hash.get("refresh_token") });
+        if (error) { step("password-step"); $("password-err").textContent = message(error); stop = true; }
+      }
+    }
+
     // Already fully signed in: carry on. Signed in with only a password: ask for the code.
-    try {
+    if (!stop) try {
       if (await verifiedSession()) done();
       else {
         const { data: { session } } = await supabase.auth.getSession();

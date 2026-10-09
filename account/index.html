@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Account · lifeOS.</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/lifeos/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/lifeos/apple-touch-icon.png">
+  <meta name="theme-color" content="#F5F5F7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1e1a" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="/lifeos/fonts.css">
+  <style>
+    /* The sign-in page's look (lifeOS. tokens, lavender accent) */
+    :root {
+      --bg:#F5F5F7; --surface:#fffdf8; --input:#f0ece3; --line:#e5dfd0; --line-strong:#ddd8cc;
+      --text:#2c2218; --muted:#6b6055; --dim:#a8a295;
+      --logo:#5a4fa0; --accent:#7d6fd6; --accent-strong:#5a4fa0; --on-accent:#fff; --danger:#b54e4e;
+      --shadow-lg:0 18px 50px rgba(44,34,24,.12);
+      --disp:var(--hub-head, 'Lora', Georgia, serif);
+      --body:var(--hub-body, 'Source Sans 3', system-ui, -apple-system, sans-serif);
+      color-scheme:light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:#1a1e1a; --surface:#232823; --input:#2e342e; --line:#3a423a; --line-strong:#434b43;
+        --text:#ebe8de; --muted:#a8a89c; --dim:#6b7568;
+        --logo:#c9c1ff; --accent:#b4a9ff; --accent-strong:#b4a9ff; --on-accent:#1a1e1a; --danger:#c96b6b;
+        --shadow-lg:0 18px 50px rgba(0,0,0,.45);
+        color-scheme:dark;
+      }
+    }
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    body {
+      background:var(--bg); color:var(--text); font-family:var(--body); font-size:16px; line-height:1.45;
+      -webkit-font-smoothing:antialiased; min-height:100dvh;
+      padding:calc(1.25rem + env(safe-area-inset-top)) 16px calc(2rem + env(safe-area-inset-bottom));
+    }
+    button, input { font:inherit; color:inherit; }
+    main { width:100%; max-width:480px; margin:0 auto; display:grid; gap:16px; }
+    .top { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+    .title { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:2rem; letter-spacing:-.03em; color:var(--logo); }
+    .title .dot { font-style:normal; color:var(--accent); }
+    .back { color:var(--accent-strong); font-weight:600; text-decoration:none; font-size:.95rem; }
+    .card { background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow-lg); padding:20px; display:grid; gap:12px; }
+    .card h2 { font-family:var(--disp); font-weight:600; font-size:1.15rem; }
+    .card p, .note { color:var(--muted); font-size:.92rem; }
+    label { display:block; font-size:.82rem; font-weight:600; color:var(--muted); margin-bottom:6px; }
+    .field { width:100%; background:var(--input); border:1px solid var(--line-strong); border-radius:10px; padding:10px 12px; font-size:16px; outline:none; min-height:44px; }
+    .field:focus { border-color:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+    .row { display:flex; gap:8px; align-items:center; }
+    .row .field { flex:1; min-width:0; }
+    .btn { border:none; border-radius:10px; min-height:44px; padding:0 16px; font-weight:700; background:var(--accent-strong); color:var(--on-accent); cursor:pointer; white-space:nowrap; }
+    .btn.ghost { background:transparent; color:var(--accent-strong); border:1px solid var(--line-strong); }
+    .btn.danger { background:var(--danger); color:#fff; }
+    .btn:disabled { opacity:.55; cursor:default; }
+    .msg { font-size:.88rem; min-height:1.2em; }
+    .msg:empty { display:none; }
+    .msg.ok { color:var(--accent-strong); }
+    .msg.err { color:var(--danger); }
+    ul.people { list-style:none; display:grid; gap:8px; }
+    ul.people li { display:flex; justify-content:space-between; gap:10px; align-items:center; background:var(--input); border-radius:10px; padding:9px 12px; }
+    .who { display:grid; min-width:0; }
+    .who b { font-weight:600; }
+    .who span { color:var(--muted); font-size:.85rem; overflow:hidden; text-overflow:ellipsis; }
+    .code { font-family:ui-monospace, Menlo, monospace; font-size:1.25rem; letter-spacing:.12em; font-weight:700; }
+    .small { font-size:.85rem; }
+    .link { border:none; background:none; color:var(--accent-strong); font-weight:600; cursor:pointer; padding:4px 0; font-size:.88rem; }
+    .danger-zone { border-color:color-mix(in srgb, var(--danger) 35%, var(--line)); }
+    [hidden] { display:none !important; }
+  </style>
+  <script type="module">
+    import { requireAuth } from "/lifeos/auth.js";
+    window.__session = requireAuth();
+  </script>
+</head>
+<body>
+  <main>
+    <header class="top">
+      <p class="title">lifeOS<span class="dot">.</span></p>
+      <a class="back" id="back" href="/lifeos/">Back to lifeOS</a>
+    </header>
+
+    <section class="card">
+      <h2>You</h2>
+      <p id="email"></p>
+      <form class="row" id="name-form">
+        <input class="field" id="name" autocomplete="name" placeholder="Your name" aria-label="Your name">
+        <button class="btn ghost">Save</button>
+      </form>
+      <p class="msg" id="name-msg" role="status"></p>
+    </section>
+
+    <section class="card">
+      <h2>Password</h2>
+      <form class="row" id="pass-form">
+        <input class="field" id="password" type="password" autocomplete="new-password" minlength="10" placeholder="New password (10+ characters)" aria-label="New password">
+        <button class="btn ghost">Change</button>
+      </form>
+      <p class="msg" id="pass-msg" role="status"></p>
+    </section>
+
+    <section class="card">
+      <h2>Household</h2>
+      <p>Everyone in your household shares recipes, the meal plan, the shopping list and joint. tasks. Everything else stays your own.</p>
+      <ul class="people" id="members"></ul>
+      <button class="btn" id="invite-btn" type="button">Invite someone</button>
+      <div id="invites" class="people-wrap"></div>
+      <p class="msg" id="house-msg" role="status"></p>
+      <button class="link" id="leave-btn" type="button" hidden>Leave this household</button>
+    </section>
+
+    <section class="card danger-zone">
+      <h2>Delete account</h2>
+      <p>Deletes your account and everything only you can see: tasks, places, wishlists, quotes, reviews, settings. Shared joint. tasks pass to someone still in your household. If nobody else is in it, its recipes, meal plan and shopping list go too. This can’t be undone.</p>
+      <div><label for="confirm-email">Type your email to confirm</label><input class="field" id="confirm-email" type="email" autocomplete="off"></div>
+      <button class="btn danger" id="delete-btn" type="button" disabled>Delete my account</button>
+      <p class="msg" id="delete-msg" role="status"></p>
+    </section>
+  </main>
+
+  <script type="module">
+    import { supabase, SIGNIN_PATH, REASON_KEY, HOME_PATH } from "/lifeos/auth.js";
+
+    const $ = (id) => document.getElementById(id);
+    const session = await window.__session;
+    const me = session.user;
+
+    // Back to wherever lifeOS lives on this site (/ on the lifeOS site, /lifeos/ on GitHub).
+    try {
+      const ref = new URL(document.referrer);
+      if (ref.origin === location.origin && !ref.pathname.startsWith(SIGNIN_PATH)) $("back").href = ref.pathname + ref.search;
+      else $("back").href = HOME_PATH;
+    } catch { $("back").href = HOME_PATH; }
+
+    const say = (id, text, ok = true) => { $(id).textContent = text; $(id).className = `msg ${ok ? "ok" : "err"}`; };
+    const failed = (err) => {
+      const m = err?.message || String(err);
+      if (/two-factor/i.test(m)) return "Your sign-in needs its two-factor code again. Sign out and back in.";
+      if (/fetch|network|load failed/i.test(m)) return "Couldn’t reach the server. Check your connection.";
+      if (/does not exist|could not find the function/i.test(m)) return "This isn’t switched on yet (the accounts set-up hasn’t been run).";
+      return m;
+    };
+    async function busy(btn, fn) { btn.disabled = true; try { await fn(); } finally { btn.disabled = false; } }
+
+    // ── You ──
+    $("email").textContent = me.email;
+    supabase.from("profiles").select("display_name").eq("id", me.id).maybeSingle()
+      .then(({ data }) => { $("name").value = data?.display_name || ""; });
+    $("name-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      busy(e.submitter || $("name-form").querySelector("button"), async () => {
+        const { error } = await supabase.from("profiles").update({ display_name: $("name").value.trim() || null }).eq("id", me.id);
+        error ? say("name-msg", failed(error), false) : say("name-msg", "Saved.");
+      });
+    });
+
+    // ── Password ──
+    $("pass-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const pw = $("password").value;
+      if (pw.length < 10) { say("pass-msg", "Use at least 10 characters.", false); return; }
+      busy($("pass-form").querySelector("button"), async () => {
+        const { error } = await supabase.auth.updateUser({ password: pw });
+        if (error) { say("pass-msg", /should be different/i.test(error.message) ? "That’s your current password." : failed(error), false); return; }
+        $("password").value = "";
+        say("pass-msg", "Password changed. Your other devices stay signed in.");
+      });
+    });
+
+    // ── Household ──
+    const inviteLink = (code) => `${location.origin}${SIGNIN_PATH}?invite=${code}`;
+    const pretty = (code) => `${code.slice(0, 4)}-${code.slice(4)}`;
+    const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
+
+    async function loadHousehold() {
+      const [{ data: people, error }, { data: invites }] = await Promise.all([
+        supabase.rpc("household_members"),
+        supabase.from("household_invites").select("code, expires_at").is("used_at", null).gt("expires_at", new Date().toISOString()).order("created_at"),
+      ]);
+      if (error) { say("house-msg", failed(error), false); $("invite-btn").hidden = true; return; }
+      $("members").replaceChildren(...people.map(p => el("li", {},
+        el("div", { className: "who" }, el("b", { textContent: (p.name || p.email.split("@")[0]) + (p.is_me ? " (you)" : "") }), el("span", { textContent: p.email })),
+      )));
+      $("leave-btn").hidden = people.length < 2;
+      $("invites").replaceChildren(...(invites || []).map(inv => {
+        const days = Math.max(1, Math.ceil((new Date(inv.expires_at) - Date.now()) / 86400000));
+        const share = el("button", { className: "btn ghost", type: "button", textContent: navigator.share ? "Share" : "Copy link" });
+        share.onclick = () => shareInvite(inv.code);
+        const cancel = el("button", { className: "link", type: "button", textContent: "Cancel" });
+        cancel.onclick = () => busy(cancel, async () => {
+          const { error } = await supabase.rpc("cancel_invite", { code: inv.code });
+          error ? say("house-msg", failed(error), false) : loadHousehold();
+        });
+        return el("ul", { className: "people" }, el("li", {},
+          el("div", { className: "who" }, el("b", { className: "code", textContent: pretty(inv.code) }), el("span", { textContent: `Invite · works once · ${days} day${days === 1 ? "" : "s"} left` })),
+          el("div", { className: "row" }, share, cancel),
+        ));
+      }));
+    }
+
+    async function shareInvite(code) {
+      const text = `Join my household on lifeOS: ${inviteLink(code)} (or enter code ${pretty(code)} in food. → Settings).`;
+      if (navigator.share) {
+        try { await navigator.share({ title: "lifeOS invite", text }); } catch { /* closed */ }
+      } else {
+        try { await navigator.clipboard.writeText(inviteLink(code)); say("house-msg", "Invite link copied."); }
+        catch { say("house-msg", inviteLink(code)); }
+      }
+    }
+
+    $("invite-btn").onclick = () => busy($("invite-btn"), async () => {
+      const { data: code, error } = await supabase.rpc("create_invite");
+      if (error) { say("house-msg", failed(error), false); return; }
+      say("house-msg", "Invite made. Send it to the person you’re inviting: it works once, for 7 days.");
+      await loadHousehold();
+      shareInvite(code);
+    });
+
+    $("leave-btn").onclick = () => {
+      if (!confirm("Leave this household? You’ll start a new, empty one. Recipes, the meal plan, the shopping list and joint. tasks stay with the others.")) return;
+      busy($("leave-btn"), async () => {
+        const { error } = await supabase.rpc("leave_household");
+        if (error) { say("house-msg", failed(error), false); return; }
+        try { localStorage.removeItem(`food.household.${me.id}`); } catch { /* private mode */ }
+        say("house-msg", "You’ve left. You’re in a new household of your own.");
+        loadHousehold();
+      });
+    };
+
+    loadHousehold();
+
+    // ── Delete account ──
+    $("confirm-email").addEventListener("input", () => {
+      $("delete-btn").disabled = $("confirm-email").value.trim().toLowerCase() !== me.email.toLowerCase();
+    });
+    $("delete-btn").onclick = () => {
+      if (!confirm("Delete your lifeOS account and everything in it? This can’t be undone.")) return;
+      busy($("delete-btn"), async () => {
+        const { error } = await supabase.rpc("delete_my_account");
+        if (error) { say("delete-msg", failed(error), false); return; }
+        // The account is gone: forget everything this device kept for it.
+        try { localStorage.clear(); } catch { /* private mode */ }
+        try { for (const k of await caches.keys()) await caches.delete(k); } catch { /* none */ }
+        try { for (const r of await navigator.serviceWorker?.getRegistrations?.() || []) await r.unregister(); } catch { /* none */ }
+        try { localStorage.setItem(REASON_KEY, JSON.stringify({ reason: "your account was deleted", at: Date.now() })); } catch { /* private mode */ }
+        location.replace(SIGNIN_PATH);
+      });
+    };
+  </script>
+</body>
+</html>

@@ -269,10 +269,13 @@
       <div class="wheel" id="wheel" tabindex="0" role="listbox" aria-label="Apps"></div>
     </div>
     <!-- The dock: shopping, today., add, search (each moved in here by its
-         script), then connections and sign out. -->
+         script), then connections, account and sign out. -->
     <nav class="dock" id="dock" aria-label="lifeOS">
       <button class="sl-btn" id="connections" type="button" title="Connections" aria-label="Connections">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      </button>
+      <button class="sl-btn" id="account" type="button" title="Account" aria-label="Account">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
       </button>
       <button class="sl-btn" id="sign-out" type="button" title="Sign out" aria-label="Sign out">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -301,6 +304,8 @@
 
     // Signs this device out of every hub app (they share one sign-in), not
     // your other devices.
+    // Name, password, household and invites, deleting the account (its own page).
+    document.getElementById('account').onclick = () => { location.href = '/lifeos/account/'; };
     document.getElementById('sign-out').onclick = () => {
       if (confirm('Sign out of lifeOS on this device?')) signOut();
     };
