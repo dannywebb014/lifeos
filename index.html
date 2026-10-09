@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="description" content="lifeOS. — every app in one place" />
   <title>lifeOS.</title>
-  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/lifeos/icon.svg" type="image/svg+xml">
+  <!-- This page is the lifeOS shell: apps started in it send Google sign-in back to /lifeos/. -->
+  <meta name="lifeos-shell" content="1">
   <link rel="apple-touch-icon" href="/lifeos/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -390,6 +392,18 @@
       { id: 'wish',       name: 'wish',       url: '/lifeos/wish/', embed: '/lifeos/wish/embed.js?v=1' },
     ];
 
+    // Addresses. The lifeOS site (Vercel) sets LIFEOS_PRETTY at build time:
+    // lifeOS lives at "/" and each app at its own word ("/tasks"). The GitHub
+    // Pages copy keeps "/lifeos/#tasks".
+    const PRETTY = Boolean(window.LIFEOS_PRETTY);
+    const ROUTES = { cal: '/calendar', tasks: '/tasks', food: '/food', train: '/train', breathe: '/breathe',
+      motivation: '/motivation', places: '/places', media: '/media', wish: '/wish' };
+    const HOME = PRETTY ? '/' : location.pathname;
+    const addressFor = (id) => PRETTY ? ROUTES[id] || '/' : '#' + id;
+    const appInAddress = () => PRETTY
+      ? Object.keys(ROUTES).find(id => ROUTES[id] === location.pathname.replace(/\/$/, '')) || location.hash.slice(1)
+      : location.hash.slice(1);
+
     const root = document.documentElement.style;
     const $ = id => document.getElementById(id);
     const wheel = $('wheel'), sheet = $('sheet'), loading = $('loading');
@@ -507,7 +521,7 @@
       document.body.classList.add('open');
       sheet.setAttribute('aria-hidden', 'false');
       document.title = `${app.name}. · lifeOS.`;
-      if (push) history.pushState({ app: app.id }, '', '#' + app.id);
+      if (push) history.pushState({ app: app.id }, '', addressFor(app.id));
     }
 
     function close() {
@@ -525,7 +539,7 @@
     }
 
     // Back (browser button, swipe, or Escape) returns to the picker.
-    function back() { history.state?.app ? history.back() : (history.replaceState(null, '', location.pathname), close()); }
+    function back() { history.state?.app ? history.back() : (history.replaceState(null, '', HOME), close()); }
     addEventListener('popstate', e => {
       const app = APPS.find(x => x.id === e.state?.app);
       app ? open(app, false) : close();
@@ -573,7 +587,7 @@
       if (!app) return false;
       const swap = Boolean(openId);
       open(app, !swap);
-      if (swap) history.replaceState({ app: app.id }, '', '#' + app.id);
+      if (swap) history.replaceState({ app: app.id }, '', addressFor(app.id));
       return true;
     };
 
@@ -681,12 +695,15 @@
       history.replaceState(null, '', location.pathname + location.search);
     }
     const replyFor = /^tasks:/.test(replyState) ? 'tasks' : 'cal';
-    const start = googleReply ? APPS.find(x => x.id === replyFor) : APPS.find(x => x.id === location.hash.slice(1));
+    if (PRETTY && location.pathname.startsWith('/lifeos') && !googleReply && !appInAddress()) {
+      history.replaceState(null, '', '/' + location.search);
+    }
+    const start = googleReply ? APPS.find(x => x.id === replyFor) : APPS.find(x => x.id === appInAddress());
     requestAnimationFrame(() => {
       toApp(start ? APPS.indexOf(start) : 0);
       paint();
       if (start) {
-        history.replaceState(null, '', location.pathname);
+        history.replaceState(null, '', HOME);
         open(start, true, googleReply);
       } else {
         wheel.focus({ preventScroll: true });
@@ -708,7 +725,12 @@
   </script>
   <script>
     // Opens fast and works with no signal (push-sw.js keeps lifeOS's files here, and shows notifications).
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/lifeos/push-sw.js", { scope: "/lifeos/" }).catch(err => console.warn("Offline copy:", err));
+    // On the lifeOS site it keeps the whole site (lifeOS lives at "/" there); the
+    // /lifeos/ one stays too, for notifications (connections.js).
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/lifeos/push-sw.js", { scope: "/lifeos/" }).catch(err => console.warn("Offline copy:", err));
+      if (window.LIFEOS_PRETTY) navigator.serviceWorker.register("/lifeos/push-sw.js", { scope: "/" }).catch(err => console.warn("Offline copy:", err));
+    }
   </script>
 </body>
 </html>

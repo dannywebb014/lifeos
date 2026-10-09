@@ -44,7 +44,8 @@ export function connect({ silent = false, then = "" } = {}) {
     if (silent) sessionStorage.setItem(SILENT_KEY, "1");
   } catch { /* private mode: the state check will fail safe */ }
   const params = new URLSearchParams({
-    client_id: id.trim(), redirect_uri: location.origin + location.pathname,
+    // Back to /lifeos/ (the address Google knows), wherever lifeOS is served.
+    client_id: id.trim(), redirect_uri: location.origin + "/lifeos/",
     response_type: "token", scope: SCOPE, include_granted_scopes: "true", state,
   });
   if (silent) params.set("prompt", "none");

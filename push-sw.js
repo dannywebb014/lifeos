@@ -85,7 +85,9 @@ self.addEventListener("notificationclick", (e) => {
   const url = new URL(e.notification.data?.url || "/lifeos/", self.location.origin);
   e.waitUntil((async () => {
     const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    const home = open.find(c => new URL(c.url).pathname === "/lifeos/");
+    // lifeOS: /lifeos/ on GitHub Pages; "/" or an app's word ("/tasks") on the lifeOS site.
+    const SHELL = /^\/(lifeos\/|calendar|tasks|food|train|breathe|motivation|places|media|wish)?$/;
+    const home = open.find(c => SHELL.test(new URL(c.url).pathname));
     if (home) {
       await home.focus();
       home.postMessage({ lifeosOpen: url.searchParams.get("app") });
