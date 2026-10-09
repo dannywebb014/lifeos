@@ -395,7 +395,10 @@
     // Addresses. The lifeOS site (Vercel) sets LIFEOS_PRETTY at build time:
     // lifeOS lives at "/" and each app at its own word ("/tasks"). The GitHub
     // Pages copy keeps "/lifeos/#tasks".
-    const PRETTY = Boolean(window.LIFEOS_PRETTY);
+    // Opened at /lifeos/ (an app added to the home screen before lifeOS moved
+    // to "/" is fenced in there), it stays on /lifeos/#tasks addresses: going
+    // to "/" would leave the app, and iPhone then shows Safari's bars.
+    const PRETTY = Boolean(window.LIFEOS_PRETTY) && !location.pathname.startsWith('/lifeos');
     const ROUTES = { cal: '/calendar', tasks: '/tasks', food: '/food', train: '/train', breathe: '/breathe',
       motivation: '/motivation', places: '/places', media: '/media', wish: '/wish' };
     const HOME = PRETTY ? '/' : location.pathname;
@@ -695,9 +698,6 @@
       history.replaceState(null, '', location.pathname + location.search);
     }
     const replyFor = /^tasks:/.test(replyState) ? 'tasks' : 'cal';
-    if (PRETTY && location.pathname.startsWith('/lifeos') && !googleReply && !appInAddress()) {
-      history.replaceState(null, '', '/' + location.search);
-    }
     const start = googleReply ? APPS.find(x => x.id === replyFor) : APPS.find(x => x.id === appInAddress());
     requestAnimationFrame(() => {
       toApp(start ? APPS.indexOf(start) : 0);

@@ -4,7 +4,7 @@
 // app when one is tapped. Registered by each of those pages, and by
 // connections. when notifications are turned on.
 const APP = "lifeos";
-const CACHE = `${APP}-1`;
+const CACHE = `${APP}-2`;   // -2: dropped a copy of the old app manifest
 
 // ─── Opening fast, and with no signal ───────────────────────────────
 // Pages come from the network when it answers within 2.5 seconds (so updates
