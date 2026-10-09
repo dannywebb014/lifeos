@@ -301,10 +301,13 @@
     import { mountConnections } from "/lifeos/connections.js?v=8";
     import * as google from "/lifeos/google.js?v=1";
     import { signOut } from "/lifeos/auth.js";
+    // First time on lifeOS: a welcome that picks the apps (welcome.js).
+    import { maybeWelcome } from "/lifeos/welcome.js?v=1";
 
     // Signs this device out of every hub app (they share one sign-in), not
     // your other devices.
     // Name, password, household and invites, deleting the account (its own page).
+    maybeWelcome();
     document.getElementById('account').onclick = () => { location.href = '/lifeos/account/'; };
     document.getElementById('sign-out').onclick = () => {
       if (confirm('Sign out of lifeOS on this device?')) signOut();
@@ -382,10 +385,10 @@
 
   <script>
     // Each app stays where it is; this page only frames them.
-    const APPS = [
+    const ALL_APPS = [
       // unload: closed rather than kept in the background, because calendar.
       // re-signs in to Google when the phone wakes, and that takes over the whole page.
-      { id: 'cal',        name: 'calendar',   url: '/calhub/', unload: true, embed: '/calhub/embed.js?v=1' },
+      { id: 'cal',        name: 'calendar',   url: '/calhub/', unload: true, embed: '/calhub/embed.js?v=2' },
       { id: 'tasks',      name: 'tasks',      url: '/taskhub/', embed: '/taskhub/embed.js?v=1' },
       { id: 'food',       name: 'food',       url: '/foodhub/', embed: '/foodhub/embed.js?v=1' },
       { id: 'train',      name: 'train',      url: '/train/', embed: '/train/embed.js?v=2' },
@@ -396,6 +399,19 @@
       { id: 'media',      name: 'media',      url: '/mediahub/', embed: '/mediahub/embed.js?v=1' },
       { id: 'wish',       name: 'wish',       url: '/lifeos/wish/', embed: '/lifeos/wish/embed.js?v=1' },
     ];
+    // The apps this person chose for their wheel (the welcome, or Account →
+    // Apps), from the device copy of their settings (shared/settings.js keeps
+    // it): every app until they choose.
+    const APPS = (() => {
+      try {
+        const uid = JSON.parse(localStorage.getItem('sb-tvpmeysctvlhjyhotfyk-auth-token') || 'null')?.user?.id;
+        const chosen = JSON.parse(localStorage.getItem(`lifeos.settings.${uid}`) || 'null')?.apps;
+        const list = Array.isArray(chosen) ? ALL_APPS.filter(a => chosen.includes(a.id)) : [];
+        return list.length ? list : ALL_APPS;
+      } catch { return ALL_APPS; }
+    })();
+    // For today. and the rest: which apps are on the wheel.
+    window.lifeosApps = APPS.map(a => a.id);
 
     // Addresses. The lifeOS site (Vercel) sets LIFEOS_PRETTY at build time:
     // lifeOS lives at "/" and each app at its own word ("/tasks"). The GitHub

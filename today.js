@@ -439,7 +439,8 @@ export function mountToday({ open: openApp, setup = () => {}, enabled = () => tr
     return { tomorrow, day: tomorrow ? addDays(startOfToday(), 1) : startOfToday() };
   };
 
-  const cards = CARDS.map(c => {
+  // Only apps on this person's wheel (lifeos/index.html sets the list).
+  const cards = CARDS.filter(c => !window.lifeosApps || window.lifeosApps.includes(c.id)).map(c => {
     const b = document.createElement("button");
     b.type = "button"; b.className = "tcard wait";
     b.style.setProperty("--c", `var(--${c.id}-logo)`);

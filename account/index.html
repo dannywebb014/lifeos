@@ -67,6 +67,8 @@
     .small { font-size:.85rem; }
     .link { border:none; background:none; color:var(--accent-strong); font-weight:600; cursor:pointer; padding:4px 0; font-size:.88rem; }
     .danger-zone { border-color:color-mix(in srgb, var(--danger) 35%, var(--line)); }
+    .apps label { display:flex; justify-content:space-between; align-items:center; gap:12px; width:100%; cursor:pointer; }
+    .apps input { width:20px; height:20px; accent-color:var(--accent); flex:none; }
     [hidden] { display:none !important; }
   </style>
   <script type="module">
@@ -89,6 +91,12 @@
         <button class="btn ghost">Save</button>
       </form>
       <p class="msg" id="name-msg" role="status"></p>
+    </section>
+
+    <section class="card">
+      <h2>Apps on your wheel</h2>
+      <ul class="people apps" id="apps"></ul>
+      <p class="msg" id="apps-msg" role="status"></p>
     </section>
 
     <section class="card">
@@ -121,6 +129,7 @@
 
   <script type="module">
     import { supabase, SIGNIN_PATH, REASON_KEY, HOME_PATH } from "/lifeos/auth.js";
+    import * as settings from "/lifeos/shared/settings.js?v=1";
 
     const $ = (id) => document.getElementById(id);
     const session = await window.__session;
@@ -141,6 +150,7 @@
       if (/does not exist|could not find the function/i.test(m)) return "This isn’t switched on yet (the accounts set-up hasn’t been run).";
       return m;
     };
+    const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
     async function busy(btn, fn) { btn.disabled = true; try { await fn(); } finally { btn.disabled = false; } }
 
     // ── You ──
@@ -154,6 +164,25 @@
         error ? say("name-msg", failed(error), false) : say("name-msg", "Saved.");
       });
     });
+
+    // ── Apps on the wheel (shared/settings.js; lifeOS reads them as it opens) ──
+    async function paintApps() {
+      const { settings: s } = await settings.load();
+      const on = Array.isArray(s.apps) ? s.apps : settings.APP_LIST.map(a => a.id);
+      $("apps").replaceChildren(...settings.APP_LIST.map(a => {
+        const box = el("input", { type: "checkbox", checked: on.includes(a.id), value: a.id });
+        box.onchange = async () => {
+          const picked = [...$("apps").querySelectorAll("input:checked")].map(x => x.value);
+          if (!picked.length) { box.checked = true; say("apps-msg", "Keep at least one app.", false); return; }
+          try {
+            await settings.save({ apps: picked.length === settings.APP_LIST.length ? undefined : picked });
+            say("apps-msg", "Saved. lifeOS shows the change next time it opens.");
+          } catch (err) { box.checked = !box.checked; say("apps-msg", failed(err), false); }
+        };
+        return el("li", {}, el("label", {}, el("div", { className: "who" }, el("b", { textContent: a.name + "." }), el("span", { textContent: a.about })), box));
+      }));
+    }
+    paintApps();
 
     // ── Password ──
     $("pass-form").addEventListener("submit", (e) => {
@@ -171,7 +200,6 @@
     // ── Household ──
     const inviteLink = (code) => `${location.origin}${SIGNIN_PATH}?invite=${code}`;
     const pretty = (code) => `${code.slice(0, 4)}-${code.slice(4)}`;
-    const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
 
     async function loadHousehold() {
       const [{ data: people, error }, { data: invites }] = await Promise.all([
