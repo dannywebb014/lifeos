@@ -39,7 +39,8 @@ export function pullToRefresh({ refresh, scroller = () => document.scrollingElem
 
   addEventListener("touchstart", (e) => {
     if (busy || e.touches.length !== 1 || !enabled()) return;
-    box = scroller(e.target);
+    // The element really touched, even inside an app's shadow root.
+    box = scroller(e.composedPath()[0] || e.target);
     if (!box || box.scrollTop > 0) return;
     start = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   }, { passive: true });

@@ -28,11 +28,13 @@ import { supabase } from "./auth.js";
 // A stand-in for `document`, so an app written for a page of its own runs in
 // its shadow root unchanged: `const document = docFor(ctx)` at the top of
 // its mount(). Lookups (getElementById, querySelector…) search the app's
-// root; body is the app's page element; listeners go on the real document
-// (and come off at unmount), and key presses reach the app only while it's
-// on screen, with e.target the element really pressed in (not the app's box).
+// root; body is the app's page element; listeners come off at unmount.
+// Clicks, pointers and touches are heard on the app's own root; key presses
+// on the page, but only while the app is on screen, with e.target the
+// element really pressed in (not the app's box).
 // Everything else is the real document.
 const KEYS = new Set(["keydown", "keyup", "keypress"]);
+const PAGE_ONLY = new Set(["visibilitychange", "selectionchange", "fullscreenchange", "readystatechange", "DOMContentLoaded", "paste", "copy"]);
 export function docFor({ root, host, active }) {
   const real = document;
   const added = [];
@@ -54,17 +56,22 @@ export function docFor({ root, host, active }) {
         case "documentElement": return host;
         case "activeElement": return root.activeElement || null;
         // For the app's unmount: takes off every listener it added.
-        case "off": return () => { for (const [type, wrapped, opts] of added.splice(0)) real.removeEventListener(type, wrapped, opts); };
+        case "off": return () => { for (const [type, wrapped, opts, , where] of added.splice(0)) where.removeEventListener(type, wrapped, opts); };
         case "addEventListener": return (type, fn, opts) => {
-          const wrapped = KEYS.has(type)
-            ? (e) => { if (active()) return (typeof fn === "function" ? fn : fn.handleEvent.bind(fn))(unwrap(e)); }
-            : fn;
-          real.addEventListener(type, wrapped, opts);
-          added.push([type, wrapped, opts, fn]);
+          const call = typeof fn === "function" ? fn : fn.handleEvent.bind(fn);
+          // Keys: on the page (focus may be nowhere in particular), only while
+          // the app is on screen. Page-wide events (visibilitychange…): on the
+          // page. Everything else (clicks, pointers, touches…): on the app's
+          // own root, so it hears only its own, with their real targets.
+          const where = KEYS.has(type) || PAGE_ONLY.has(type) ? real : root;
+          const wrapped = KEYS.has(type) ? (e) => { if (active()) return call(unwrap(e)); }
+            : where === real ? fn : call;
+          where.addEventListener(type, wrapped, opts);
+          added.push([type, wrapped, opts, fn, where]);
         };
         case "removeEventListener": return (type, fn, opts) => {
           const i = added.findIndex(x => x[0] === type && x[3] === fn);
-          if (i >= 0) { real.removeEventListener(type, added[i][1], opts); added.splice(i, 1); }
+          if (i >= 0) { added[i][4].removeEventListener(type, added[i][1], opts); added.splice(i, 1); }
         };
         default: {
           const v = Reflect.get(t, k, t);
