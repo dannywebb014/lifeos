@@ -296,10 +296,10 @@
     // Add anything (A), from beside search: tasks, shopping, wish. (capture.js).
     import { mountCapture } from "/lifeos/capture.js?v=9";
     // today. (T), beside add: what's on today in each app.
-    import { mountToday } from "/lifeos/today.js?v=10";
+    import { mountToday } from "/lifeos/today.js?v=11";
     // Every sign-in and connection in one place, from the foot of the page.
-    import { mountConnections } from "/lifeos/connections.js?v=8";
-    import * as google from "/lifeos/google.js?v=1";
+    import { mountConnections } from "/lifeos/connections.js?v=9";
+    import * as google from "/lifeos/google.js?v=2";
     import { signOut } from "/lifeos/auth.js";
     // First time on lifeOS: a welcome that picks the apps (welcome.js).
     import { maybeWelcome } from "/lifeos/welcome.js?v=1";
@@ -336,7 +336,7 @@
     // Google connected (shared/reminders.js); at most every 5 minutes.
     const syncReminders = () => {
       if (google.isConnected()) import('/lifeos/shared/reminders.js?v=2')
-        .then(r => r.syncFromGoogle(google.auth().token)).catch(err => console.error('Reminders:', err));
+        .then(async r => r.syncFromGoogle(await google.freshToken())).catch(err => console.error('Reminders:', err));
     };
     syncReminders();
     // Lists trying lifeOS tasks (connections.): this device's copy of the
@@ -388,8 +388,8 @@
     const ALL_APPS = [
       // unload: closed rather than kept in the background, because calendar.
       // re-signs in to Google when the phone wakes, and that takes over the whole page.
-      { id: 'cal',        name: 'calendar',   url: '/calhub/', unload: true, embed: '/calhub/embed.js?v=2' },
-      { id: 'tasks',      name: 'tasks',      url: '/taskhub/', embed: '/taskhub/embed.js?v=1' },
+      { id: 'cal',        name: 'calendar',   url: '/calhub/', unload: true, embed: '/calhub/embed.js?v=3' },
+      { id: 'tasks',      name: 'tasks',      url: '/taskhub/', embed: '/taskhub/embed.js?v=2' },
       { id: 'food',       name: 'food',       url: '/foodhub/', embed: '/foodhub/embed.js?v=1' },
       { id: 'train',      name: 'train',      url: '/train/', embed: '/train/embed.js?v=2' },
       { id: 'breathe',    name: 'breathe',    url: '/breathhub/', embed: '/breathhub/embed.js?v=1' },

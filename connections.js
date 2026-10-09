@@ -17,7 +17,7 @@
 // `saved` runs after a change, so the picker can reload the apps that use it.
 
 import { supabase } from "./auth.js";
-import * as google from "./google.js?v=1";
+import * as google from "./google.js?v=2";
 import * as reminders from "./shared/reminders.js?v=2";
 import * as hub from "./shared/hubtasks.js?v=5";
 
@@ -133,8 +133,8 @@ export function mountConnections({ saved = () => {} } = {}) {
     } catch { return { ok: false, text: navigator.onLine ? "Couldn’t reach Todoist" : "Offline" }; }
   }
   function googleState() {
+    if (google.isServer()) return { ok: true, text: "Connected · stays connected" };
     if (google.isConnected()) return { ok: true, text: `Connected · ${google.minutesLeft()} min left` };
-    if (!google.clientId()) return { text: "Needs calendar.’s client ID" };
     return google.wasConnected() ? { ok: false, text: "Signed out" } : { text: "Not connected" };
   }
   const status = (el, r) => { el.className = `cn-st${r.ok === true ? " ok" : r.ok === false ? " err" : ""}`; el.textContent = r.text; };
@@ -233,7 +233,7 @@ export function mountConnections({ saved = () => {} } = {}) {
         }, { onConflict: "endpoint" });
         if (error) throw error;
         // Start with today's events straight away.
-        if (google.isConnected()) reminders.syncFromGoogle(google.auth().token, { force: true }).catch(err => console.error("Reminders:", err));
+        if (google.isConnected()) google.freshToken().then(token => reminders.syncFromGoogle(token, { force: true })).catch(err => console.error("Reminders:", err));
         paint();
       } catch (err) {
         console.error("Turning on notifications failed:", err);
@@ -334,9 +334,11 @@ export function mountConnections({ saved = () => {} } = {}) {
     box.className = "cn-box";
     const st = googleState();
     box.innerHTML = `<div class="cn-top"><b>Google Calendar</b><span class="cn-st"></span></div>
-      <div class="cn-note">${google.email() ? `${esc(google.email())}. ` : ""}Used by calendar., tasks.’ time blocks and today. Google’s sign-in lasts an hour; lifeOS renews it when today. opens.</div>
-      <div class="cn-row">${google.clientId() ? `<button type="button" class="cn-b main" data-g="connect">${google.isConnected() ? "Renew now" : google.wasConnected() ? "Sign in again" : "Connect"}</button>` : ""}
-        <button type="button" class="cn-more" data-g="id">${google.clientId() ? "Change client ID" : "Add calendar.’s client ID"}</button></div>
+      <div class="cn-note">${google.email() ? `${esc(google.email())}. ` : ""}Used by calendar., tasks.’ time blocks and today. ${google.isServer() ? "lifeOS keeps the connection fresh, so there’s nothing to renew." : "Connect once and lifeOS keeps it fresh from then on."}</div>
+      <div class="cn-row">${google.isServer()
+        ? `<button type="button" class="cn-b" data-g="disconnect">Disconnect</button>`
+        : `<button type="button" class="cn-b main" data-g="connect">${google.wasConnected() ? "Reconnect" : "Connect"}</button>`}
+        <button type="button" class="cn-more" data-g="id">${google.clientId() ? "Change client ID" : "Client ID (old way)"}</button></div>
       <div class="cn-f" hidden><input placeholder="…apps.googleusercontent.com" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Google client ID">
         <div class="cn-row"><button type="button" class="cn-b" data-g="save">Save</button></div></div>`;
     status(box.querySelector(".cn-st"), st);
@@ -345,6 +347,9 @@ export function mountConnections({ saved = () => {} } = {}) {
     box.addEventListener("click", (e) => {
       const g = e.target.closest("[data-g]")?.dataset.g;
       if (g === "connect") google.connect({ then: "connections" });
+      if (g === "disconnect" && confirm("Disconnect Google Calendar from lifeOS on every device?")) {
+        google.disconnect().then(() => { dirty = true; box.replaceWith(googleBox()); });
+      }
       if (g === "id") { f.hidden = !f.hidden; if (!f.hidden) input.focus(); }
       if (g === "save") {
         if (input.value.trim() && !input.value.trim().endsWith(".apps.googleusercontent.com")) { status(box.querySelector(".cn-st"), { ok: false, text: "That isn’t a client ID" }); return; }

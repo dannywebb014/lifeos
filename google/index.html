@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Google · lifeOS.</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/lifeos/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/lifeos/fonts.css">
+  <style>
+    :root { --bg:#F5F5F7; --text:#2c2218; --muted:#6b6055; --accent:#5a4fa0; --danger:#b54e4e; color-scheme:light; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#1a1e1a; --text:#ebe8de; --muted:#a8a89c; --accent:#b4a9ff; --danger:#c96b6b; color-scheme:dark; } }
+    body { margin:0; min-height:100dvh; display:grid; place-items:center; padding:24px 16px; box-sizing:border-box;
+      background:var(--bg); color:var(--text); font:16px/1.45 var(--hub-body, 'Source Sans 3', system-ui, sans-serif); text-align:center; }
+    p { max-width:340px; margin:0 auto 12px; }
+    #msg { color:var(--muted); }
+    #msg.err { color:var(--danger); }
+    a { color:var(--accent); font-weight:600; }
+  </style>
+  <script type="module">
+    import { requireAuth } from "/lifeos/auth.js";
+    window.__session = requireAuth();
+  </script>
+</head>
+<body>
+  <main>
+    <p id="msg">Connecting Google Calendar…</p>
+    <p><a id="back" href="/lifeos/" hidden>Back to lifeOS</a></p>
+  </main>
+  <script type="module">
+    // Back from Google through the google-auth function, which now holds the
+    // refresh token: fetch the first hour's token, then return to where
+    // Connect was tapped. (/lifeos/shared/gserver.js)
+    import { refresh } from "/lifeos/shared/gserver.js?v=1";
+    await window.__session;
+    const q = new URLSearchParams(location.search);
+    const next = (q.get("next") || "/lifeos/").startsWith("/") && !(q.get("next") || "").startsWith("//") ? q.get("next") : "/lifeos/";
+    const msg = document.getElementById("msg"), back = document.getElementById("back");
+    back.href = next;
+    const fail = (text) => { msg.textContent = text; msg.className = "err"; back.hidden = false; };
+    const result = q.get("result");
+    if (result === "connected") {
+      // Stored server-side: mark this device and fetch the first token.
+      try { localStorage.setItem("calendar.google", JSON.stringify({ ...(JSON.parse(localStorage.getItem("calendar.google") || "{}")), server: true })); } catch { /* private mode */ }
+      if (await refresh()) location.replace(next);
+      else fail("Google connected, but the first token didn’t come back. Go back and try Connect again.");
+    } else if (result === "denied") fail("Google access wasn’t given, so nothing changed.");
+    else if (result === "norefresh") fail("Google didn’t give lifeOS lasting access. In your Google account → Security → Third-party access, remove lifeOS, then connect again.");
+    else fail("Connecting Google didn’t work. Go back and try again.");
+  </script>
+</body>
+</html>

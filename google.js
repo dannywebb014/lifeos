@@ -12,6 +12,13 @@
 // The client ID is calendar.'s ("calendar.settings"), or tasks.' if only
 // that one is set.
 
+// Since 2026-10: connecting goes through lifeOS's google-auth function
+// (/lifeos/shared/gserver.js), which keeps Google's long-lived refresh token
+// on the server and hands out new hour-long tokens, so there's no trip
+// through Google each hour. The redirect below is the fallback when the
+// server isn't set up, and how anyone connected the old way carries on.
+import * as gs from "/lifeos/shared/gserver.js?v=1";
+
 const AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
 const SCOPE = "https://www.googleapis.com/auth/calendar";
 const KEY = "calendar.google";
@@ -23,7 +30,11 @@ const read = (k, fallback) => { try { return JSON.parse(localStorage.getItem(k))
 const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
 
 export const auth = () => read(KEY, {});
-export const isConnected = () => { const a = auth(); return Boolean(a.token && a.expires > Date.now()); };
+export const isConnected = () => { const a = auth(); return Boolean(a.server || (a.token && a.expires > Date.now())); };
+// Connected through the server: stays connected, no hourly renewal.
+export const isServer = () => gs.isServer();
+export const freshToken = () => gs.freshToken();
+export const disconnect = () => gs.disconnect();
 export const wasConnected = () => Boolean(auth().email);
 export const email = () => auth().email || "";
 export const minutesLeft = () => Math.max(0, Math.round(((auth().expires || 0) - Date.now()) / 60000));
@@ -36,6 +47,14 @@ export function setClientId(id) {
 
 // `then` says what to show on the way back: "today" reopens today., "connections" the connections box.
 export function connect({ silent = false, then = "" } = {}) {
+  // Asked for: through the server (no client ID needed here). Quiet renewals keep the old way.
+  if (!silent) {
+    gs.connect().catch((err) => { console.warn("Google through the server didn’t start, so the old way:", err.message); redirect({ silent, then }); });
+    return true;
+  }
+  return redirect({ silent, then });
+}
+function redirect({ silent = false, then = "" } = {}) {
   const id = clientId();
   if (!id) return false;
   const state = `${STATE_PREFIX}${then}:${crypto.randomUUID()}`;
@@ -82,5 +101,6 @@ async function rememberEmail() {
 // A quiet renewal, at most once a visit; false when it can't be tried.
 export function renewQuietly(then = "") {
   if (isConnected() || !wasConnected() || silentTried() || !clientId()) return false;
+  // (isConnected is true while the server holds the refresh token.)
   return connect({ silent: true, then });
 }

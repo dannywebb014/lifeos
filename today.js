@@ -18,7 +18,7 @@
 // An expired Google sign-in is renewed quietly when it opens (google.js).
 
 import { supabase } from "./auth.js";
-import * as google from "./google.js?v=1";
+import * as google from "./google.js?v=2";
 import * as todoist from "./shared/todoist.js?v=19";
 import * as hub from "./shared/hubtasks.js?v=5";
 
@@ -38,8 +38,8 @@ const EVENING = 18;
 // Every calendar shown in Google and not hidden in calendar. (as the
 // reminders read them), and the whole day in `items`.
 async function calendar({ day, tomorrow }) {
-  const { token } = google.auth();
-  if (!google.isConnected()) {
+  const token = google.isConnected() ? await google.freshToken() : null;
+  if (!token) {
     return google.clientId() ? { main: "Tap to renew", sub: "Google sign-in ran out", muted: true, action: "renew" }
       : { main: "Not connected", sub: "set up in connections", muted: true, action: "setup" };
   }
