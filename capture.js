@@ -24,7 +24,7 @@
 import { supabase } from "./auth.js";
 import { shoppingList } from "./shopadd.js?v=3";
 import { mealPlanner } from "./mealadd.js?v=1";
-import { parseTasks, SPACES } from "./shared/parse.js?v=17";
+import { parseTasks, SPACES } from "./shared/parse.js?v=18";
 import * as todoist from "./shared/todoist.js?v=19";
 import * as hub from "./shared/hubtasks.js?v=5";
 import * as speech from "./shared/speech.js?v=15";

@@ -91,15 +91,21 @@ const PRIORITY_WORDS = [
   [1, "low|green", "low|three|3"],
 ];
 const LINK = "(?:[\\s,\\-–—]*(?:as|with|at|is)\\s+(?:a\\s+)?)?";
+// Brackets left empty once the words inside them are taken out go too.
+const cut = (text, m) => (text.slice(0, m.index) + text.slice(m.index + m[0].length)).replace(/[([]\s*[)\]]/g, "");
 export function takePriority(text) {
+  // "high priority", "high-priority", "priority high", "priority: high"
   for (const [level, before, after] of PRIORITY_WORDS) {
-    const re = new RegExp(`${LINK}[\\s,\\-–—]*\\b(?:(?:${before})\\s+priority|priority\\s*(?:${after}))\\b`, "i");
+    const re = new RegExp(`${LINK}[\\s,\\-–—]*\\b(?:(?:${before})[\\s-]+priority|priority\\s*[:=\\-–—]?\\s*(?:${after}))\\b`, "i");
     const m = text.match(re);
-    if (m) return { text: text.slice(0, m.index) + text.slice(m.index + m[0].length), priority: level };
+    if (m) return { text: cut(text, m), priority: level };
   }
+  // A bare level tacked on at the end after a comma or dash: "buy milk, low".
+  const bare = text.match(/\s*[,\-–—]\s*(high|medium|low)\s*$/i);
+  if (bare) return { text: cut(text, bare), priority: { high: 3, medium: 2, low: 1 }[bare[1].toLowerCase()] };
   // "Urgent" on its own, at the start or the end.
   const m = text.match(/^\s*urgent(?:ly)?\b[\s,:\-–—]*|[\s,\-–—]+urgent(?:ly)?\s*$/i);
-  if (m) return { text: text.slice(0, m.index) + text.slice(m.index + m[0].length), priority: 3 };
+  if (m) return { text: cut(text, m), priority: 3 };
   return { text, priority: 0 };
 }
 
@@ -153,6 +159,9 @@ export function parseTasks(input, chrono, { now = new Date(), defaultSpace = SPA
     if (said) ({ rule: repeat, date } = withAnchor(said, date, isoDate(now)));
     const clean = tidy(text);
     if (clean) tasks.push({ text: clean, space, date, time, minutes, priority, repeat });
+    // "Call Sam." (pause) "High priority." — a line that only gives a
+    // priority, as speech often splits it off, belongs to the task before.
+    else if (priority && tasks.length) tasks[tasks.length - 1].priority = priority;
   }
   return tasks;
 }
