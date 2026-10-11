@@ -8,6 +8,8 @@
 //   - shopping: "buy milk", "get eggs, butter" (a comma makes several), or a
 //     line that is exactly an item on food.'s master list, or a list of them
 //     ("milk, eggs")
+//   - food.'s meal plan: "chilli Tuesday dinner", "Oscar pancakes tomorrow
+//     breakfast", "meal: takeaway Friday" (mealadd.js)
 //   - wish.: "want AirPods" for my wishlist; "… for Sam" (someone on a gift
 //     list) or "gift for Sam: …" for theirs
 //   - tasks.: everything else, read the way tasks. reads dictation (space,
@@ -20,7 +22,8 @@
 // open(text) opens it with text already in (lifeOS's ?add=…, for Siri).
 
 import { supabase } from "./auth.js";
-import { shoppingList } from "./shopadd.js?v=2";
+import { shoppingList } from "./shopadd.js?v=3";
+import { mealPlanner } from "./mealadd.js?v=1";
 import { parseTasks, SPACES } from "./shared/parse.js?v=17";
 import * as todoist from "./shared/todoist.js?v=19";
 import * as hub from "./shared/hubtasks.js?v=5";
@@ -30,9 +33,10 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<"
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch { return null; } };
 const fold = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
+const DAYS_TODAY = () => ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][(new Date().getDay() + 6) % 7];
 const PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
-const KINDS = ["task", "shop", "wish", "place", "media"];
-const KIND_LABEL = { task: "tasks.", shop: "shopping", wish: "wish.", place: "places.", media: "media." };
+const KINDS = ["task", "shop", "meal", "wish", "place", "media"];
+const KIND_LABEL = { task: "tasks.", shop: "shopping", meal: "meal plan", wish: "wish.", place: "places.", media: "media." };
 // "place: Dishoom Shoreditch", "visit - Kew Gardens"
 const PLACE = /^(?:places?|visit|go\s+to)\s*[:\-–]\s*/i;
 // "watch: The Bear", "read: Piranesi", "listen to: Blue Rev"
@@ -59,7 +63,7 @@ const CSS = `
   .cap-row { display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:10px; }
   .cap-kind { flex-shrink:0; min-width:5.4rem; border:1px solid var(--c); color:var(--c); background:none; border-radius:999px;
     font:inherit; font-size:.78rem; font-weight:700; padding:3px 9px; cursor:pointer; }
-  .cap-kind.task { --c:var(--tasks); } .cap-kind.shop { --c:var(--food); } .cap-kind.wish { --c:var(--wish); }
+  .cap-kind.task { --c:var(--tasks); } .cap-kind.shop { --c:var(--food); } .cap-kind.meal { --c:var(--food); } .cap-kind.wish { --c:var(--wish); }
   .cap-main { flex:1; min-width:0; }
   .cap-main .sl-s .on { color:var(--food); }
   .cap-state { flex-shrink:0; font-size:.78rem; color:var(--sl-muted); }
@@ -95,7 +99,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
   back.className = "sl-back"; back.hidden = true;
   back.innerHTML = `<div class="sl-panel" role="dialog" aria-modal="true" aria-label="Add anything">
     <div class="sl-box">${PLUS.replace("<svg", `<svg class="cap-ic"`)}
-      <textarea class="cap-q" rows="1" placeholder="Add anything… a task, “buy milk”, “want AirPods”" autocapitalize="sentences" enterkeyhint="done" aria-label="What to add, one per line"></textarea></div>
+      <textarea class="cap-q" rows="1" placeholder="Add anything… a task, “buy milk”, “curry Friday dinner”" autocapitalize="sentences" enterkeyhint="done" aria-label="What to add, one per line"></textarea></div>
     <div class="sl-out"></div>
     <div class="sl-foot" aria-live="polite"><button type="button" class="cap-mic" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Speak</span></button><span class="cap-msg"></span><button type="button" class="cap-undo" hidden>Undo</button><button type="button" class="cap-go" disabled>Add</button></div></div>`;
   document.body.append(back);
@@ -110,13 +114,17 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
 
   // ── What it needs: the shopping list, the people on gift lists, the task parser ──
   const shop = shoppingList();
+  const meals = mealPlanner();
   let people = [], ready = null, problems = [];
   // A list trying lifeOS tasks has no Craft or Todoist here (hubtasks.js).
   const settings = () => hub.effective(read("tasks.settings") || {});
   function load() {
     problems = [];
     return ready = Promise.all([
-      shop.load().catch(err => { console.error("capture: shopping list:", err); problems.push("the shopping list"); }),
+      shop.load()
+        .catch(err => { console.error("capture: shopping list:", err); problems.push("the shopping list"); })
+        .then(() => shop.household && meals.load(shop.household))
+        .catch(err => { console.error("capture: meal plan:", err); problems.push("the meal plan"); }),
       supabase.from("wish_people").select("id, name").then(({ data, error }) => {
         if (error) { console.error("capture: wish people:", error); problems.push("gift lists"); return; }
         people = data;
@@ -143,6 +151,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     if (MEDIA.test(t)) return "media";
     if (/^(?:shop(?:ping)?\s*[:\-]|buy\s|get\s|pick\s+up\s|need\s(?!to\b))/i.test(t)) return "shop";
     if (/^(?:wish(?:list)?\s*[:\-]|(?:i\s+)?want\s(?!to\b))/i.test(t)) return "wish";
+    if (meals.read(t)) return "meal";
     if (personIn(t)) return "wish";
     if (shop.find(t)) return "shop";
     // "milk, eggs and bread": a list where every item is on food.'s master list.
@@ -163,6 +172,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
       const name = (hit ? hit.name : t.replace(/^(?:wish(?:list)?\s*[:\-]\s*|(?:i\s+)?want\s+)/i, "")).trim();
       return { name: cap(name), person: hit?.person || null };
     }
+    if (kind === "meal") return meals.read(t, true) || { day: null, meal: "Dinner", recipe: null, note: cap(t), people: null };
     if (kind === "place") return { name: cap(t.replace(PLACE, "").trim()) };
     if (kind === "media") {
       const m = t.match(MEDIA);
@@ -176,12 +186,13 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
   function detail(kind, s) {
     if (kind === "shop") return s.names.map(n => n.on ? `<span class="on">${esc(n.name)} is on the list</span>` : `${esc(n.name)}${n.master ? "" : " (one-off)"}`).join(", ");
     if (kind === "wish") return s.person ? `for ${esc(s.person.name)}` : "my wishlist";
+    if (kind === "meal") return `${esc(s.day || "Today")} ${esc(s.meal.toLowerCase())} · for ${esc(meals.names(s.people))}${s.recipe ? "" : " · as a note"}`;
     if (kind === "place") return "found on the map when you next open places.";
     if (kind === "media") return s.col ? `to ${esc(s.col.name)}` : `<span class="on">open media. once, or start with watch:, read: or listen:</span>`;
     const space = SPACES.find(x => x.id === s.space)?.label || s.space;
     return [space, s.date && dayText(s.date), s.time && `${s.time}${s.minutes ? ` for ${s.minutes} min` : ""}`, s.priority && `${["", "low", "medium", "high"][s.priority]} priority`, s.repeat?.text].filter(Boolean).map(esc).join(" · ");
   }
-  const title = (kind, s) => kind === "shop" ? s.names.map(n => n.name).join(", ") : kind === "wish" || kind === "place" ? s.name : kind === "media" ? s.title : s.text;
+  const title = (kind, s) => kind === "shop" ? s.names.map(n => n.name).join(", ") : kind === "meal" ? (s.recipe ? s.recipe.name : s.note) : kind === "wish" || kind === "place" ? s.name : kind === "media" ? s.title : s.text;
 
   function read_() {
     const old = new Map(lines.map(l => [l.raw, l]));
@@ -231,6 +242,11 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
           const undos = [];
           for (const n of l.shape.names) undos.push((await shop.add(n.master || n.name)).undo);
           l.undo = async () => { for (const u of undos.reverse()) await u(); };
+          touched.add("food");
+        } else if (l.kind === "meal") {
+          if (!meals.household) throw new Error("no meal plan");
+          const r = await meals.add({ ...l.shape, day: l.shape.day || DAYS_TODAY() });
+          if (r.already) l.note = "already planned"; else l.undo = r.undo;
           touched.add("food");
         } else if (l.kind === "place") {
           l.undo = await holdPlace(l.shape.name);
