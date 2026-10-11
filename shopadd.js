@@ -41,6 +41,19 @@ export function shoppingList() {
     s.items = m.data.map(x => ({ ...x, f: fold(x.name) })).sort((a, b) => a.name.localeCompare(b.name));
     s.bought = new Set(c.data.map(x => x.item_key));
   };
+  // food. on the household's other phones re-reads the list when told (its
+  // live shopping list listens on this channel).
+  // When food. is open in this page it already has the channel (one shared
+  // client), so use that one and leave it open.
+  const tell = (...tables) => {
+    const name = `shopping-${s.household}`;
+    const open = supabase.getChannels().find(c => c.topic === `realtime:${name}`);
+    const ch = open || supabase.channel(name);
+    for (const table of tables) ch.send({ type: "broadcast", event: "changed", payload: { table } }).catch(() => {});
+    if (!open) setTimeout(() => supabase.removeChannel(ch), 5000);
+  };
+  // One row per item: say so, or an item ticked before gets a refused second row.
+  const tick = (m, checked) => supabase.from("shop_checked").upsert({ household_id: s.household, item_key: checkKey(m.name), checked }, { onConflict: "household_id,item_key" });
   s.onList = (m) => m.active && !s.bought.has(checkKey(m.name));
   s.find = (name) => s.items.find(m => m.f === fold(String(name).trim()));
   s.add = async (what) => {
@@ -49,7 +62,8 @@ export function shoppingList() {
       const name = String(what).trim(), id = crypto.randomUUID();
       const { error } = await supabase.from("shop_extras").insert({ id, household_id: s.household, name, amount: "", unit: "" });
       if (error) throw error;
-      return { name, undo: async () => { const r = await supabase.from("shop_extras").delete().eq("id", id); if (r.error) throw r.error; } };
+      tell("shop_extras");
+      return { name, undo: async () => { const r = await supabase.from("shop_extras").delete().eq("id", id); if (r.error) throw r.error; tell("shop_extras"); } };
     }
     if (s.onList(m)) return { name: m.name, already: true, undo: async () => {} };
     const wasActive = m.active, wasBought = s.bought.has(checkKey(m.name));
@@ -59,10 +73,11 @@ export function shoppingList() {
       m.active = true;
     }
     if (s.bought.has(checkKey(m.name))) {
-      const { error } = await supabase.from("shop_checked").upsert({ household_id: s.household, item_key: checkKey(m.name), checked: false });
+      const { error } = await tick(m, false);
       if (error) throw error;
       s.bought.delete(checkKey(m.name));
     }
+    tell("master_items", "shop_checked");
     return { name: m.name, undo: async () => {
       if (!wasActive) {
         const { error } = await supabase.from("master_items").update({ active: false }).eq("id", m.id);
@@ -70,10 +85,11 @@ export function shoppingList() {
         m.active = false;
       }
       if (wasBought) {
-        const { error } = await supabase.from("shop_checked").upsert({ household_id: s.household, item_key: checkKey(m.name), checked: true });
+        const { error } = await tick(m, true);
         if (error) throw error;
         s.bought.add(checkKey(m.name));
       }
+      tell("master_items", "shop_checked");
     } };
   };
   return s;
