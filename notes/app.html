@@ -3,19 +3,21 @@
     <aside class="side" id="side" aria-label="Notes">
       <header class="side-head">
         <h1 class="logo">notes<span class="dot">.</span></h1>
+        <button type="button" class="icon-btn" id="spaces-btn" aria-label="Spaces" title="Spaces: rename or add">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        </button>
         <button type="button" class="icon-btn" id="new-folder" aria-label="New folder" title="New folder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
         </button>
         <button type="button" class="icon-btn" id="bin-btn" aria-label="Bin" title="Bin">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
         </button>
+        <button type="button" class="icon-btn side-toggle" id="side-hide" aria-label="Hide the sidebar" title="Hide the sidebar (⌘S)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 10l-2 2 2 2"/></svg>
+        </button>
       </header>
       <div id="lists">
-        <nav class="tabs" id="tabs" aria-label="Spaces">
-          <button type="button" class="tab" data-space="my">my space</button>
-          <button type="button" class="tab" data-space="work">work</button>
-          <button type="button" class="tab" data-space="joint">joint</button>
-        </nav>
+        <nav class="tabs" id="tabs" aria-label="Spaces"></nav>
         <div id="notice"></div>
         <div class="tree" id="tree" role="tree" aria-label="Notes and folders"></div>
       </div>
@@ -29,6 +31,9 @@
     <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" aria-label="Sidebar width" tabindex="0" title="Drag to resize (double-click to reset)"></div>
 
     <section class="note-view" aria-label="Note">
+      <button type="button" class="icon-btn side-toggle" id="side-show" aria-label="Show the sidebar" title="Show the sidebar (⌘S)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M13 10l2 2-2 2"/></svg>
+      </button>
       <p class="empty-state" id="empty">Pick a note, or start a new one.</p>
       <article id="note" hidden>
         <div class="note-bar">
@@ -94,7 +99,6 @@
           <p class="interim" id="interim" hidden></p>
           <div id="editor" class="editor"></div>
         </div>
-        <p class="hint">Type <kbd>/</kbd> for headings, lists, quotes, code and dividers.</p>
       </article>
     </section>
   </div>
@@ -126,6 +130,19 @@
       <div class="row">
         <button type="button" class="ghost" id="name-cancel">Cancel</button>
         <button type="submit" class="primary" id="name-ok">Make folder</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="spaces-dlg" aria-labelledby="spaces-title">
+    <form class="sheet" id="spaces-form" method="dialog">
+      <h2 id="spaces-title">Spaces</h2>
+      <p class="note">Rename your spaces, or add your own. joint is shared with your household; spaces you add are just for you.</p>
+      <div class="space-rows" id="space-rows"></div>
+      <button type="button" class="link" id="space-add">+ Add a space</button>
+      <div class="row">
+        <button type="button" class="ghost" id="spaces-cancel">Cancel</button>
+        <button type="submit" class="primary">Save</button>
       </div>
     </form>
   </dialog>

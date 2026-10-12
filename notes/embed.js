@@ -51,7 +51,14 @@ const NoteTaskItem = TaskItem.extend({
   },
 });
 
-const SPACES = [{ id: "my", label: "my space" }, { id: "work", label: "work" }, { id: "joint", label: "joint" }];
+// The spaces: my, work and joint (shared with the household) are always
+// there and can be renamed; more can be added (Spaces, the gear), private to
+// whoever adds them (sql/notes-spaces.sql). Kept per person in app_state
+// (app "notes", data.spaces), with a copy on the device.
+const BUILT_IN = [{ id: "my", label: "my space" }, { id: "work", label: "work" }, { id: "joint", label: "joint", shared: true }];
+let SPACES = BUILT_IN;
+const SPACES_KEY = "notes.spaces";
+const TASK_SPACES = ["my", "work", "joint"];   // the spaces tasks. has; a note in another space makes my space tasks
 const BASE_COLUMNS = "id,space,title,body_text,household_id,deleted_at,updated_at,parent_id,position,pinned,day";
 const SAVE_AFTER = 1000;
 const BIN_DAYS = 30;
@@ -60,6 +67,7 @@ const SPACE_KEY = "notes.space";
 const FOLDER_KEY = "notes.folder";   // the folder last chosen in each space
 const OPEN_KEY = "notes.open";       // folders shown open in the sidebar
 const SIDE_KEY = "notes.sideWidth";  // the sidebar's width, dragged by its edge
+const SIDE_OFF_KEY = "notes.sideOff"; // the sidebar folded away (⌘S)
 const SIDE_WIDTH = 272;
 const LONG_PRESS = 350;              // ms held on a touch screen before dragging starts
 const CHEV = `<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
@@ -148,6 +156,13 @@ export async function mount(ctx) {
   // ─── What's on this device ────────────────────────────────────────
   const readJSON = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const writeJSON = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage full or blocked */ } };
+  // Built-ins first (named as you've named them), then the ones you added.
+  function useSpaces(saved) {
+    const list = Array.isArray(saved) ? saved.filter(x => x && /^[a-z][a-z0-9_]{0,39}$/.test(x.id) && String(x.label || "").trim()) : [];
+    SPACES = [...BUILT_IN.map(b => ({ ...b, label: list.find(x => x.id === b.id)?.label || b.label })),
+      ...list.filter(x => !BUILT_IN.some(b => b.id === x.id)).map(x => ({ id: x.id, label: String(x.label).trim() }))];
+  }
+  useSpaces(readJSON(SPACES_KEY, null));
   let space = SPACES.some(s => s.id === readJSON(SPACE_KEY)) ? readJSON(SPACE_KEY) : "my";
   let folder = readJSON(FOLDER_KEY, {})[space] || null;   // the folder shown, or null for the top of the space
   const opened = new Set(readJSON(OPEN_KEY, []));
@@ -224,6 +239,7 @@ export async function mount(ctx) {
         .select(listColumns).single();
       // Page styles not set up yet (notes-style.sql): saved without its style.
       if (error?.code === "42703" && /style/.test(error.message)) { styleMissing(); return push({ ...e, style: null }); }
+      if (error?.code === "23514" && /space/.test(error.message)) toast("Spaces you add aren’t set up yet: run lifeos/sql/notes-spaces.sql in Supabase.", { err: true });
       // That day's note was started on another device: theirs stays, this
       // one is kept beside it as an ordinary note.
       if (error?.code === "23505" && /per_day/.test(error.message)) {
@@ -601,7 +617,7 @@ export async function mount(ctx) {
         const household_id = note.space === "joint" ? await householdFor("joint") : null;
         const rows = await Promise.all(toMake.map(async (l) => {
           const t = await asTask(l.text, note.day);
-          return { id: l.taskId, text: t.text, date: t.date, priority: t.priority, repeat: t.repeat, space: note.space, household_id, note_id: note.id, done_at: l.checked ? new Date().toISOString() : null };
+          return { id: l.taskId, text: t.text, date: t.date, priority: t.priority, repeat: t.repeat, space: TASK_SPACES.includes(note.space) ? note.space : "my", household_id, note_id: note.id, done_at: l.checked ? new Date().toISOString() : null };
         }));
         const { error } = await supabase.from("hub_tasks").upsert(rows, { onConflict: "id", ignoreDuplicates: true });
         if (error) { if (!tasksMissing(error)) console.error("notes.: making tasks failed:", error.message); return; }
@@ -900,13 +916,17 @@ export async function mount(ctx) {
   // The sidebar: this space as a tree. Folders first, then notes, each A to Z.
   const nameOf = (n) => isFolder(n) ? folderName(n) : naming(n).name || "Untitled";
   const byName = (a, b) => nameOf(a).localeCompare(nameOf(b), "en-GB", { sensitivity: "base", numeric: true });
+  function renderTabs() {
+    $("tabs").innerHTML = SPACES.map(x => `<button type="button" class="tab" data-space="${x.id}" aria-pressed="${x.id === space}">${esc(x.label)}</button>`).join("");
+  }
   function renderList() {
-    for (const t of $("tabs").querySelectorAll(".tab")) t.setAttribute("aria-pressed", String(t.dataset.space === space));
+    if (!SPACES.some(x => x.id === space)) goTo("my", null);
+    renderTabs();
     $("new-folder").hidden = !ready || !folders;
     if (!ready) { $("tree").innerHTML = ""; return; }
     if (folder && liveFolder(folder)?.space !== space) folder = null;
     const label = SPACES.find(x => x.id === space).label;
-    const rows = [`<div class="node${current?.day === today() ? " sel" : ""}" role="treeitem" tabindex="-1" data-kind="daily" title="Today’s note (D)"><span class="gap"></span><span class="ic" aria-hidden="true">${DAY_ICON}</span><span class="label">Today’s note</span></div>`];
+    const rows = [`<div class="node${current?.day === today() ? " sel" : ""}" role="treeitem" tabindex="-1" data-kind="daily" title="Today’s note (D)"><span class="gap"></span><span class="ic" aria-hidden="true">${DAY_ICON}</span><span class="label">today<i>.</i></span></div>`];
     const pinned = notes.filter(n => n.pinned && !n.deleted_at && !n.day && n.space === space).sort(byName);
     if (pinned.length) {
       rows.push(`<div class="tree-head" data-drop="pin">Pinned</div>`);
@@ -1279,6 +1299,77 @@ export async function mount(ctx) {
   tree.addEventListener("touchmove", (e) => { if (drag?.active) e.preventDefault(); }, { passive: false });
   tree.addEventListener("contextmenu", (e) => { if (drag) e.preventDefault(); });
 
+  // ─── Spaces (the gear) ─────────────────────────────────────────────
+  let draftSpaces = [];
+  function drawSpaces() {
+    $("space-rows").innerHTML = draftSpaces.map((x, i) => {
+      const builtIn = BUILT_IN.some(b => b.id === x.id);
+      const used = notes.some(n => n.space === x.id && !n.deleted_at);
+      return `<div class="space-row" data-i="${i}"><input type="text" maxlength="30" value="${esc(x.label)}" aria-label="Name for ${esc(x.label)}">
+        <span class="kind">${x.id === "joint" ? "shared" : "just you"}</span>
+        ${builtIn ? "" : `<button type="button" class="small-btn danger" data-remove${used ? ` disabled title="Move or delete its notes first"` : ""}>Remove</button>`}</div>`;
+    }).join("");
+  }
+  function openSpaces() {
+    draftSpaces = SPACES.map(x => ({ ...x }));
+    drawSpaces();
+    $("spaces-dlg").showModal();
+  }
+  $("spaces-btn").addEventListener("click", openSpaces);
+  $("spaces-cancel").addEventListener("click", () => $("spaces-dlg").close());
+  $("space-rows").addEventListener("input", (e) => {
+    const row = e.target.closest(".space-row");
+    if (row) draftSpaces[Number(row.dataset.i)].label = e.target.value;
+  });
+  $("space-rows").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-remove]");
+    if (!b || b.disabled) return;
+    draftSpaces.splice(Number(b.closest(".space-row").dataset.i), 1);
+    drawSpaces();
+  });
+  $("space-add").addEventListener("click", () => {
+    draftSpaces.push({ id: `s${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`, label: "" });
+    drawSpaces();
+    $("space-rows").querySelector(".space-row:last-child input")?.focus();
+  });
+  $("spaces-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const list = draftSpaces.map(x => ({ id: x.id, label: String(x.label || "").trim() }))
+      .filter(x => x.label || BUILT_IN.some(b => b.id === x.id))
+      .map(x => ({ ...x, label: x.label || BUILT_IN.find(b => b.id === x.id).label }));
+    $("spaces-dlg").close();
+    useSpaces(list);
+    writeJSON(SPACES_KEY, list);
+    renderList(); labelBack();
+    const { data: { session } } = await supabase.auth.getSession();
+    const { error } = await supabase.from("app_state").upsert(
+      { user_id: session?.user?.id, app: "notes", data: { spaces: list }, updated_at: new Date().toISOString() },
+      { onConflict: "user_id,app" });
+    if (error) { toast(`Saved on this device only: ${error.message}`, { err: true }); console.error("notes.: saving spaces failed:", error.message); }
+  });
+  // Named the same on every device: the saved list, when it's there.
+  supabase.from("app_state").select("data").eq("app", "notes").maybeSingle().then(({ data, error }) => {
+    if (error || !data?.data?.spaces) return;
+    writeJSON(SPACES_KEY, data.data.spaces);
+    useSpaces(data.data.spaces);
+    renderList(); labelBack();
+  });
+
+  // ─── Folding the sidebar away (⌘S) ────────────────────────────────
+  const wideScreen = matchMedia("(min-width: 900px)");
+  function setSideOff(off) {
+    $("shell").classList.toggle("side-off", off);
+    writeJSON(SIDE_OFF_KEY, off);
+  }
+  setSideOff(Boolean(readJSON(SIDE_OFF_KEY, false)));
+  function toggleSide() {
+    // On a phone the list and the note take turns: ⌘S goes back to the list.
+    if (!wideScreen.matches) { if (current) closeNote(); return; }
+    setSideOff(!$("shell").classList.contains("side-off"));
+  }
+  $("side-hide").addEventListener("click", () => setSideOff(true));
+  $("side-show").addEventListener("click", () => setSideOff(false));
+
   // ─── The sidebar's width ──────────────────────────────────────────
   function sideWidth(w, keep = false) {
     const width = Math.round(Math.max(200, Math.min(560, w)));
@@ -1332,6 +1423,10 @@ export async function mount(ctx) {
 
   const typing = (e) => e.target.closest?.("input, textarea, select, [contenteditable]");
   document.addEventListener("keydown", (e) => {
+    // ⌘N a new note, ⌘S the sidebar (Ctrl on Windows), even while typing.
+    const mod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
+    if (mod && (e.key === "n" || e.key === "N")) { e.preventDefault(); newNote(); return; }
+    if (mod && (e.key === "s" || e.key === "S")) { e.preventDefault(); toggleSide(); return; }
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
     if (e.key === "Escape" && (drag || !$("folder-menu").hidden || !$("style-pop").hidden)) { e.preventDefault(); endDrag(); closeFolderMenu(); closeStyle(); return; }
     if ((e.key === "n" || e.key === "N") && !typing(e)) { e.preventDefault(); newNote(); }
