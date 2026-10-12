@@ -390,6 +390,7 @@ export async function mount(ctx) {
     const parent = liveFolder(row.parent_id ?? row.parent)?.id ?? null;
     current = { id: row.id, isNew: Boolean(row.isNew), base: row.updated_at || null, space: row.space, parent, day: row.day || null, style: row.style || null };
     applyStyle(current.style);
+    savedStyle = current.style;
     dirty = false;
     // The sidebar shows where the note lives, its folders open.
     if (!current.day) { goTo(row.space, parent); for (const f of pathTo(parent)) setOpen(f.id, true); }
@@ -655,16 +656,50 @@ export async function mount(ctx) {
   }
 
   // ─── Page styles ──────────────────────────────────────────────────
+  // A style is { card, backdrop } by preset name, or "custom" with hex
+  // colours: cardHex; bdA (+ bdB for a gradient, bdAngle 180/135/90/radial);
+  // and ink, the text colour (none: dark or light to suit the page).
+  const hex = (h) => {
+    const m = String(h || "").trim().match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!m) return null;
+    const v = m[1].length === 3 ? m[1].split("").map(c => c + c).join("") : m[1];
+    return `#${v.toLowerCase()}`;
+  };
+  const luminance = (h) => {
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  // Dark text on a light colour, light text on a dark one.
+  const inkOn = (colours) => (colours.reduce((t, c) => t + luminance(c), 0) / colours.length > 0.36 ? "#22201c" : "#f4f3ef");
+  const isLight = (h) => luminance(h) > 0.36;
+  function resolve(style) {
+    let card = STYLES.card[style?.card] || null;
+    if (style?.card === "custom" && hex(style.cardHex)) card = { bg: hex(style.cardHex), ink: inkOn([hex(style.cardHex)]) };
+    let bd = STYLES.backdrop[style?.backdrop] || null;
+    if (style?.backdrop === "custom" && hex(style.bdA)) {
+      const A = hex(style.bdA), B = hex(style.bdB);
+      bd = !B ? { css: A, ink: inkOn([A]) }
+        : { css: style.bdAngle === "radial" ? `radial-gradient(circle at 50% 30%, ${A}, ${B})` : `linear-gradient(${Number(style.bdAngle) || 180}deg, ${A}, ${B})`, ink: inkOn([A, B]) };
+    }
+    return { card, bd, ink: hex(style?.ink) };
+  }
   function applyStyle(style) {
-    const card = STYLES.card[style?.card], bd = STYLES.backdrop[style?.backdrop];
+    const { card, bd, ink } = resolve(style);
     const box = $("editor").closest(".card");
     box.classList.toggle("styled", Boolean(card));
+    box.classList.toggle("inked", !card && Boolean(ink));
     box.style.setProperty("--card-bg", card?.bg || "");
-    box.style.setProperty("--card-ink", card?.ink || "");
+    box.style.setProperty("--card-ink", ink || card?.ink || "");
     const page = document.body;
     page.classList.toggle("backdrop", Boolean(bd));
     page.style.setProperty("--bd", bd?.css || "");
     page.style.setProperty("--bd-ink", bd?.ink || "");
+    // The sidebar wears the backdrop, or the page colour when there's none.
+    const side = bd ? { paint: bd.css, ink: bd.ink } : card ? { paint: card.bg, ink: card.ink } : null;
+    page.classList.toggle("tinted", Boolean(side));
+    page.style.setProperty("--side-paint", side?.paint || "");
+    page.style.setProperty("--side-ink", side?.ink || "");
+    page.style.setProperty("--side-on", side ? (isLight(side.ink) ? "#1a1e1a" : "#ffffff") : "");
   }
   let warnedStyle = false;
   function styleMissing() {
@@ -672,30 +707,56 @@ export async function mount(ctx) {
     warnedStyle = true;
     toast("Page styles aren’t set up yet: run lifeos/sql/notes-style.sql in Supabase.", { err: true });
   }
-  async function setStyle(patchStyle) {
+  // Shown at once; saved a moment after the last change (a colour picker
+  // sends a stream of them while it's dragged).
+  let savedStyle = null, styleTimer = 0;
+  function setStyle(change, { soon = false } = {}) {
     if (!current) return;
-    const before = current.style;
-    const next = { ...(current.style || {}), ...patchStyle };
-    for (const k of Object.keys(next)) if (!next[k]) delete next[k];
+    const next = { ...(current.style || {}), ...change };
+    for (const k of Object.keys(next)) if (next[k] == null || next[k] === "") delete next[k];
     current.style = Object.keys(next).length ? next : null;
     applyStyle(current.style);
     paintStyle();
     // Not saved yet: it goes in with the note's first save.
     if (current.isNew && !byId(current.id)) { if (dirty) keepUnsaved(entryNow()); return; }
-    await saveNow();
-    try { await patch([current.id], { style: current.style }); }
-    catch (err) {
-      if (err.code === "42703") styleMissing();
-      else toast(`Couldn’t change the style: ${err.message}`, { err: true });
-      current.style = before; applyStyle(before); paintStyle();
-    }
+    clearTimeout(styleTimer);
+    const note = current;
+    styleTimer = setTimeout(async () => {
+      if (current !== note) return;
+      await saveNow();
+      try { await patch([note.id], { style: note.style }); savedStyle = note.style; }
+      catch (err) {
+        if (err.code === "42703") styleMissing();
+        else toast(`Couldn’t change the style: ${err.message}`, { err: true });
+        note.style = savedStyle;
+        if (current === note) { applyStyle(savedStyle); paintStyle(); }
+      }
+    }, soon ? 600 : 0);
   }
   function paintStyle() {
     const on = current?.style || {};
+    const { card } = resolve(on);
     const sw = (kind, key, p) => `<button type="button" class="swatch${key ? "" : " none"}" data-kind="${kind}" data-key="${key || ""}" aria-pressed="${(on[kind] || "") === (key || "")}"
       title="${p ? p.label : "None"}" aria-label="${p ? p.label : "None"}"${p ? ` style="background:${kind === "card" ? p.bg : p.css}"` : ""}></button>`;
-    $("card-swatches").innerHTML = sw("card", null) + Object.entries(STYLES.card).map(([k, p]) => sw("card", k, p)).join("");
-    $("backdrop-swatches").innerHTML = sw("backdrop", null) + Object.entries(STYLES.backdrop).map(([k, p]) => sw("backdrop", k, p)).join("");
+    const custom = (kind) => `<button type="button" class="swatch custom" data-kind="${kind}" data-key="custom" aria-pressed="${on[kind] === "custom"}" title="Your own colour" aria-label="Your own colour"></button>`;
+    $("card-swatches").innerHTML = sw("card", null) + Object.entries(STYLES.card).map(([k, p]) => sw("card", k, p)).join("") + custom("card");
+    $("backdrop-swatches").innerHTML = sw("backdrop", null) + Object.entries(STYLES.backdrop).map(([k, p]) => sw("backdrop", k, p)).join("") + custom("backdrop");
+    // The boxes show what's in use; one being typed in is left alone.
+    const fillHex = (id, value) => { const el = $(id); if (el && document.activeElement !== el) { el.value = value ? value.toUpperCase() : ""; el.classList.remove("bad"); } };
+    const fillPick = (id, value) => { if (value) $(id).value = value; };
+    $("card-custom").hidden = on.card !== "custom";
+    fillHex("card-hex", hex(on.cardHex)); fillPick("card-pick", hex(on.cardHex));
+    $("ink-auto").setAttribute("aria-pressed", String(!hex(on.ink)));
+    const shownInk = hex(on.ink) || card?.ink || "#2c2218";
+    fillHex("ink-hex", hex(on.ink)); fillPick("ink-pick", shownInk);
+    $("bd-custom").hidden = on.backdrop !== "custom";
+    const gradient = Boolean(hex(on.bdB));
+    for (const b of $("bd-custom").querySelectorAll("[data-bd-kind]")) b.setAttribute("aria-pressed", String((b.dataset.bdKind === "gradient") === gradient));
+    for (const id of ["bd-to", "bd-pick-b", "bd-hex-b"]) $(id).hidden = !gradient;
+    $("bd-dir").hidden = !gradient;
+    for (const b of $("bd-dir").querySelectorAll("[data-angle]")) b.setAttribute("aria-pressed", String(b.dataset.angle === String(on.bdAngle || "180")));
+    fillHex("bd-hex-a", hex(on.bdA)); fillPick("bd-pick-a", hex(on.bdA));
+    fillHex("bd-hex-b", hex(on.bdB)); fillPick("bd-pick-b", hex(on.bdB));
   }
   function openStyle() {
     const pop = $("style-pop"), btn = $("style-btn");
@@ -709,9 +770,26 @@ export async function mount(ctx) {
   function closeStyle() { $("style-pop").hidden = true; }
   $("style-btn").addEventListener("click", () => ($("style-pop").hidden ? openStyle() : closeStyle()));
   $("style-pop").addEventListener("click", (e) => {
-    const b = e.target.closest(".swatch");
-    if (b) setStyle({ [b.dataset.kind]: b.dataset.key || null });
+    const sw = e.target.closest(".swatch");
+    const on = current?.style || {};
+    if (sw?.dataset.key === "custom" && sw.dataset.kind === "card") setStyle({ card: "custom", cardHex: hex(on.cardHex) || resolve(on).card?.bg || "#f4e9d8" });
+    else if (sw?.dataset.key === "custom") setStyle({ backdrop: "custom", bdA: hex(on.bdA) || "#23406e", bdB: on.bdA ? on.bdB : "#5b9cc4", bdAngle: on.bdAngle || "180" });
+    else if (sw) setStyle({ [sw.dataset.kind]: sw.dataset.key || null });
+    const kind = e.target.closest("[data-bd-kind]")?.dataset.bdKind;
+    if (kind) setStyle({ bdB: kind === "gradient" ? hex(on.bdB) || "#5b9cc4" : null });
+    const angle = e.target.closest("[data-angle]")?.dataset.angle;
+    if (angle) setStyle({ bdAngle: angle });
+    if (e.target.closest("#ink-auto")) setStyle({ ink: null });
   });
+  // A colour from the picker or typed as hex: the two boxes keep each other up to date.
+  for (const [pick, text, key] of [["card-pick", "card-hex", "cardHex"], ["ink-pick", "ink-hex", "ink"], ["bd-pick-a", "bd-hex-a", "bdA"], ["bd-pick-b", "bd-hex-b", "bdB"]]) {
+    $(pick).addEventListener("input", () => { $(text).value = $(pick).value.toUpperCase(); $(text).classList.remove("bad"); setStyle({ [key]: $(pick).value }, { soon: true }); });
+    $(text).addEventListener("input", () => {
+      const v = hex($(text).value);
+      $(text).classList.toggle("bad", !v && $(text).value.trim().length > 0);
+      if (v) { $(pick).value = v; setStyle({ [key]: v }, { soon: true }); }
+    });
+  }
   document.addEventListener("pointerdown", (e) => {
     if (!$("style-pop").hidden && !e.target.closest("#style-pop, #style-btn")) closeStyle();
   });
