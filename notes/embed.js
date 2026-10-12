@@ -21,10 +21,35 @@
 // notes and folders also show at the top. Daily notes (day set, one per
 // person per day) live outside the folders, reached from "Today" and the
 // day arrows, and from today.'s notes. card (#day=YYYY-MM-DD).
+//
+// Tasks (sql/notes-tasks.sql): as in Craft, every checklist line is a task,
+// a row in hub_tasks in the note's space, so it shows in tasks., today. and
+// the calendar. The line keeps the task's id (taskId); a date in the line
+// ("call the vet friday") is the task's date, and a daily note's lines fall
+// on its day. A tick in either place shows in both: ticks made in tasks. are
+// brought in when the note opens. Text goes from the note to the task only
+// when the line changes, so a rename in tasks. stays. Deleting a line
+// deletes its open task; a line whose task was deleted in tasks. is let go
+// (taskId "off") rather than made again.
 import { Editor, Extension, StarterKit, TaskList, TaskItem, Placeholder, Suggestion } from "/lifeos/vendor/tiptap-3.31.3.js?v=2";
 import { fill, docFor } from "/lifeos/embed.js";
 import { householdId } from "/lifeos/shared/hubtasks.js?v=5";
 import * as speech from "/lifeos/shared/speech.js?v=15";
+import { parseTasks } from "/lifeos/shared/parse.js?v=26";
+
+const CHRONO = "https://cdn.jsdelivr.net/npm/chrono-node@2.10.1/+esm";
+let chrono = null;
+const loadChrono = () => chrono ? Promise.resolve(chrono) : import(CHRONO).then(m => (chrono = m));
+const PENDING_TASKS = "notes.pendingTasks";   // task ids made here, not yet confirmed saved
+// A checklist line remembers its task. A new line split off one starts with none.
+const NoteTaskItem = TaskItem.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      taskId: { default: null, keepOnSplit: false, parseHTML: (el) => el.getAttribute("data-task-id"), renderHTML: (a) => (a.taskId ? { "data-task-id": a.taskId } : {}) },
+    };
+  },
+});
 
 const SPACES = [{ id: "my", label: "my space" }, { id: "work", label: "work" }, { id: "joint", label: "joint" }];
 const BASE_COLUMNS = "id,space,title,body_text,household_id,deleted_at,updated_at,parent_id,position,pinned,day";
@@ -275,6 +300,7 @@ export async function mount(ctx) {
           // Only forget the device copy if nothing was typed since it was sent.
           if (current === note && dirty) keepUnsaved(entryNow());
           else dropUnsaved(entry.id);
+          if (current === note) await syncTasks(note);
           if (current === note && !dirty) status("Saved");
         }
         renderList();
@@ -288,6 +314,11 @@ export async function mount(ctx) {
     })();
     try { await saving; } finally { saving = null; }
     if (dirty && current === note) saveTimer = setTimeout(saveNow, SAVE_AFTER);
+  }
+
+  // Saves until nothing is left: tying lines to tasks changes the note again.
+  async function flush() {
+    for (let i = 0; i < 4 && (dirty || saving); i++) await saveNow();
   }
 
   // Anything left on this device from before (a closed app, no signal): sent now.
@@ -319,7 +350,7 @@ export async function mount(ctx) {
       extensions: [
         StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false, autolink: true } }),
         TaskList,
-        TaskItem.configure({ nested: true }),
+        NoteTaskItem.configure({ nested: true }),
         Placeholder.configure({ placeholder: "Write something, or type / for more" }),
         Slash,
       ],
@@ -368,7 +399,7 @@ export async function mount(ctx) {
 
   async function openNote(id) {
     stopMic();
-    await saveNow();
+    await flush();
     const draft = unsaved()[id];
     const { data, error } = await supabase.from("notes").select("*").eq("id", id).maybeSingle();
     if (error && !draft) { toast(`Couldn’t open that note: ${error.message}`, { err: true }); return; }
@@ -378,13 +409,14 @@ export async function mount(ctx) {
       showNote({ ...(data || {}), ...draft, updated_at: draft.base, isNew: !data });
       changed();
     } else showNote(data);
+    if (data) loadNoteTasks(current);
   }
 
   // A day's note: the one there is, or a new one started when you write.
   async function openDay(iso) {
     if (!ready) return;
     stopMic();
-    await saveNow();
+    await flush();
     const draft = Object.values(unsaved()).find(e => e.day === iso);
     const there = notes.find(n => n.day === iso && !n.deleted_at) || (draft && { id: draft.id });
     if (there) return openNote(there.id);
@@ -394,13 +426,13 @@ export async function mount(ctx) {
   async function newNote() {
     if (!ready) return;
     stopMic();
-    await saveNow();
+    await flush();
     showNote({ id: crypto.randomUUID(), isNew: true, space, parent_id: folder, title: "", body: null }, { focus: "title" });
   }
 
   async function closeNote() {
     stopMic();
-    await saveNow();
+    await flush();
     current = null;
     applyStyle(null);
     closeStyle();
@@ -482,6 +514,128 @@ export async function mount(ctx) {
       if (current?.id === r.id) current.base = r.updated_at;
     }
     return data;
+  }
+
+  // ─── Tasks in notes ───────────────────────────────────────────────
+  let tasksOn = true;                 // false until notes-tasks.sql has been run
+  const baseline = new Map();         // taskId → { text, done } as last in step with the task
+  const pending = () => new Set(readJSON(PENDING_TASKS, []));
+  const keepPending = (set) => writeJSON(PENDING_TASKS, [...set].slice(-500));
+  function lines(doc) {
+    const out = [];
+    doc.descendants((node, pos) => {
+      if (node.type.name === "taskItem") out.push({ node, pos, taskId: node.attrs.taskId, checked: Boolean(node.attrs.checked), text: (node.firstChild?.textContent || "").trim() });
+    });
+    return out;
+  }
+  // A line as a task: its date, priority and repeat taken out of the words;
+  // a daily note's lines fall on its day.
+  async function asTask(text, day) {
+    await loadChrono();
+    const found = parseTasks(text, chrono, { defaultSpace: "my" });
+    const one = found.length === 1 ? found[0] : null;
+    return { text: one?.text || text, date: (one || found[0])?.date || day || null, priority: one?.priority || 0, repeat: one?.repeat || null };
+  }
+  let warnedTasks = false;
+  function tasksMissing(err) {
+    if (err?.code !== "42703" || !/note_id/.test(err.message)) return false;
+    tasksOn = false;
+    if (!warnedTasks) { warnedTasks = true; toast("Checklists can’t become tasks yet: run lifeos/sql/notes-tasks.sql in Supabase.", { err: true }); }
+    return true;
+  }
+  // Changes lines without an undo step (ids and ticks aren't edits).
+  function setLines(changes) {
+    if (!changes.length || !editor) return;
+    const tr = editor.state.tr;
+    for (const { pos, attrs } of changes) tr.setNodeMarkup(pos, undefined, { ...editor.state.doc.nodeAt(pos).attrs, ...attrs });
+    tr.setMeta("addToHistory", false);
+    editor.view.dispatch(tr);
+  }
+
+  // When a note opens: ticks made in tasks. come in, lines whose task has
+  // gone are let go, and the rest are in step from here.
+  async function loadNoteTasks(note) {
+    baseline.clear();
+    if (!tasksOn || !note || note.isNew) return;
+    const ids = lines(editor.state.doc).map(l => l.taskId).filter(id => id && id !== "off");
+    if (!ids.length) return syncTasks(note);
+    const { data, error } = await supabase.from("hub_tasks").select("id,text,done_at").eq("note_id", note.id);
+    if (error) { if (!tasksMissing(error)) console.error("notes.: loading the note's tasks failed:", error.message); return; }
+    if (current !== note || !editor) return;
+    const rows = new Map(data.map(r => [r.id, r]));
+    const waiting = pending();
+    const changes = [];
+    for (const l of lines(editor.state.doc)) {
+      if (!l.taskId || l.taskId === "off") continue;
+      const row = rows.get(l.taskId);
+      if (!row) { if (!waiting.has(l.taskId)) changes.push({ pos: l.pos, attrs: { taskId: "off" } }); continue; }
+      const done = Boolean(row.done_at);
+      if (done !== l.checked) changes.push({ pos: l.pos, attrs: { checked: done } });
+      baseline.set(l.taskId, { text: l.text, done });
+    }
+    setLines(changes);
+    await syncTasks(note);
+  }
+
+  // After a save: new lines become tasks, changed ones change theirs, and
+  // a deleted line's open task goes.
+  let syncing = null;
+  async function syncTasks(note) {
+    if (!tasksOn || !editor || current !== note || note.isNew) return;
+    if (syncing) return syncing;
+    syncing = (async () => {
+      const all = lines(editor.state.doc);
+      // New lines (and a pasted copy of a line) get a task id now.
+      const seen = new Set(), assign = [];
+      for (const l of all) {
+        if (l.taskId === "off") continue;
+        if ((!l.taskId && l.text) || (l.taskId && seen.has(l.taskId))) assign.push({ ...l, taskId: crypto.randomUUID() });
+        else if (l.taskId) seen.add(l.taskId);
+      }
+      setLines(assign.map(a => ({ pos: a.pos, attrs: { taskId: a.taskId } })));
+      const waiting = pending();
+      const toMake = [...assign, ...all.filter(l => l.taskId && l.taskId !== "off" && !baseline.has(l.taskId) && waiting.has(l.taskId) && l.text)];
+      if (toMake.length) {
+        for (const l of toMake) waiting.add(l.taskId);
+        keepPending(waiting);
+        const household_id = note.space === "joint" ? await householdFor("joint") : null;
+        const rows = await Promise.all(toMake.map(async (l) => {
+          const t = await asTask(l.text, note.day);
+          return { id: l.taskId, text: t.text, date: t.date, priority: t.priority, repeat: t.repeat, space: note.space, household_id, note_id: note.id, done_at: l.checked ? new Date().toISOString() : null };
+        }));
+        const { error } = await supabase.from("hub_tasks").upsert(rows, { onConflict: "id", ignoreDuplicates: true });
+        if (error) { if (!tasksMissing(error)) console.error("notes.: making tasks failed:", error.message); return; }
+        const left = pending();
+        for (const l of toMake) { left.delete(l.taskId); baseline.set(l.taskId, { text: l.text, done: l.checked }); }
+        keepPending(left);
+      }
+      // Changed lines: their words (only when the line changed) and their tick.
+      const made = new Set(toMake.map(l => l.taskId));
+      for (const l of all) {
+        const b = l.taskId && !made.has(l.taskId) && baseline.get(l.taskId);
+        if (!b) continue;
+        const fields = {};
+        if (l.text && l.text !== b.text) {
+          const t = await asTask(l.text, null);
+          fields.text = t.text;
+          if (t.date) fields.date = t.date;
+        }
+        if (l.checked !== b.done) fields.done_at = l.checked ? new Date().toISOString() : null;
+        if (!Object.keys(fields).length) continue;
+        const { error } = await supabase.from("hub_tasks").update(fields).eq("id", l.taskId);
+        if (error) { console.error("notes.: updating a task failed:", error.message); continue; }
+        baseline.set(l.taskId, { text: l.text || b.text, done: l.checked });
+      }
+      // Deleted lines: their tasks go, unless already ticked off.
+      const here = new Set(lines(editor.state.doc).map(l => l.taskId));
+      const gone = [...baseline.keys()].filter(id => !here.has(id));
+      if (gone.length) {
+        const { error } = await supabase.from("hub_tasks").delete().in("id", gone).is("done_at", null);
+        if (error) console.error("notes.: removing tasks failed:", error.message);
+        else for (const id of gone) baseline.delete(id);
+      }
+    })();
+    try { await syncing; } finally { syncing = null; }
   }
 
   // ─── Page styles ──────────────────────────────────────────────────

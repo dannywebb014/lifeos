@@ -204,6 +204,13 @@
     .ProseMirror ul[data-type="taskList"] > li > div { flex:1; min-width:0; }
     .ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > div { color:var(--dim); text-decoration:line-through; }
 
+    /* A line that's also a task (in tasks.): a small mark after it. */
+    .ProseMirror ul[data-type="taskList"] > li[data-task-id]:not([data-task-id="off"]) > div > p:first-child::after {
+      content:""; display:inline-block; width:13px; height:13px; margin-left:7px; vertical-align:-1px; background:var(--dim); opacity:.75;
+      -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7M8 7h9v9'/%3E%3C/svg%3E") center/contain no-repeat;
+      mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17 17 7M8 7h9v9'/%3E%3C/svg%3E") center/contain no-repeat; }
+    .ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > div > p:first-child::after { opacity:.4; }
+
     /* The / menu, under the cursor. */
     .slash { position:absolute; z-index:30; width:230px; max-height:300px; overflow-y:auto; display:grid; gap:1px; padding:5px;
       background:var(--surface); border:1px solid var(--line-strong); border-radius:12px; box-shadow:var(--shadow-lg); }
