@@ -13,6 +13,17 @@
           <button type="button" class="tab" data-space="work">work</button>
           <button type="button" class="tab" data-space="joint">joint</button>
         </nav>
+        <div class="crumbs-bar">
+          <nav class="crumbs" id="crumbs" aria-label="Folder"></nav>
+          <button type="button" class="small-btn" id="new-folder" title="New folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>Folder
+          </button>
+        </div>
+        <div class="folder-tools" id="folder-tools" hidden>
+          <button type="button" class="small-btn" data-act="rename">Rename</button>
+          <button type="button" class="small-btn" data-act="move">Move</button>
+          <button type="button" class="small-btn danger" data-act="delete">Delete folder</button>
+        </div>
         <div id="notice"></div>
         <div class="list" id="list"></div>
       </div>
@@ -32,6 +43,9 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg><span id="back-label">notes</span>
           </button>
           <span class="status" id="status" role="status" aria-live="polite"></span>
+          <button type="button" class="icon-btn" id="move" aria-label="Move to a folder or space" title="Move">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M10 13h6M13.5 10.5 16 13l-2.5 2.5"/></svg>
+          </button>
           <button type="button" class="icon-btn" id="delete" aria-label="Move to the bin" title="Move to the bin">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
           </button>
@@ -76,4 +90,23 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
   </button>
   <div class="slash" id="slash" role="listbox" aria-label="Add a block" hidden></div>
+
+  <dialog id="name-dlg" aria-labelledby="name-title">
+    <form class="sheet" id="name-form" method="dialog">
+      <h2 id="name-title">New folder</h2>
+      <input id="name-input" type="text" maxlength="200" placeholder="Folder name" autocomplete="off" aria-labelledby="name-title">
+      <div class="row">
+        <button type="button" class="ghost" id="name-cancel">Cancel</button>
+        <button type="submit" class="primary" id="name-ok">Make folder</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="move-dlg" aria-labelledby="move-title">
+    <div class="sheet">
+      <h2 id="move-title">Move to</h2>
+      <div class="dest" id="move-list"></div>
+      <div class="row"><button type="button" class="ghost" id="move-cancel">Cancel</button></div>
+    </div>
+  </dialog>
 </div>

@@ -9,17 +9,24 @@
 // opened (updated_at); if another device saved in between, theirs stays and
 // this one is kept beside it as a "conflict copy". Deleting moves a note to
 // the bin for 30 days (deleted_at; a nightly job empties it).
+//
+// Folders (sql/notes-folders.sql) are rows with kind "folder", their name as
+// the title; anything sits in one through parent_id, folders in folders too.
+// A folder goes to the bin with everything in it, all stamped with the same
+// deleted_at, so restoring it brings the lot back.
 import { Editor, Extension, StarterKit, TaskList, TaskItem, Placeholder, Suggestion } from "/lifeos/vendor/tiptap-3.31.3.js?v=2";
 import { fill, docFor } from "/lifeos/embed.js";
 import { householdId } from "/lifeos/shared/hubtasks.js?v=5";
 import * as speech from "/lifeos/shared/speech.js?v=15";
 
 const SPACES = [{ id: "my", label: "my space" }, { id: "work", label: "work" }, { id: "joint", label: "joint" }];
-const LIST_COLUMNS = "id,space,title,body_text,household_id,deleted_at,updated_at";
+const BASE_COLUMNS = "id,space,title,body_text,household_id,deleted_at,updated_at,parent_id";
 const SAVE_AFTER = 1000;
 const BIN_DAYS = 30;
 const UNSAVED = "notes.unsaved";
 const SPACE_KEY = "notes.space";
+const FOLDER_KEY = "notes.folder";   // the folder last open in each space
+const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
 
 // The / menu: every kind of block, with words it can be found by.
 const BLOCKS = [
@@ -64,8 +71,14 @@ export async function mount(ctx) {
   const readJSON = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const writeJSON = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage full or blocked */ } };
   let space = SPACES.some(s => s.id === readJSON(SPACE_KEY)) ? readJSON(SPACE_KEY) : "my";
+  let folder = readJSON(FOLDER_KEY, {})[space] || null;   // the folder shown, or null for the top of the space
+  function goTo(spaceId, folderId) {
+    space = spaceId; folder = folderId || null;
+    writeJSON(SPACE_KEY, space);
+    writeJSON(FOLDER_KEY, { ...readJSON(FOLDER_KEY, {}), [space]: folder });
+  }
   // Notes changed here and not yet confirmed saved: { [id]: entry }, where an
-  // entry is { id, isNew, base (updated_at it was opened at), space, title, body, body_text }.
+  // entry is { id, isNew, base (updated_at it was opened at), space, parent, title, body, body_text }.
   const unsaved = () => readJSON(UNSAVED, {});
   const keepUnsaved = (entry) => writeJSON(UNSAVED, { ...unsaved(), [entry.id]: entry });
   const dropUnsaved = (id) => { const all = unsaved(); delete all[id]; writeJSON(UNSAVED, all); };
@@ -73,9 +86,16 @@ export async function mount(ctx) {
   // ─── Notes in Supabase ────────────────────────────────────────────
   let notes = [];      // every note you can see, bin included (list columns only)
   let ready = false;   // the table exists and loaded
+  let folders = true;  // false until notes-folders.sql has been run
+  let listColumns = `${BASE_COLUMNS},kind`;
 
   async function load() {
-    const { data, error } = await supabase.from("notes").select(LIST_COLUMNS).order("updated_at", { ascending: false });
+    let { data, error } = await supabase.from("notes").select(listColumns).order("updated_at", { ascending: false });
+    if (error?.code === "42703" && /kind/.test(error.message)) {
+      folders = false;
+      listColumns = BASE_COLUMNS;
+      ({ data, error } = await supabase.from("notes").select(listColumns).order("updated_at", { ascending: false }));
+    }
     if (error) {
       ready = false;
       $("notice").innerHTML = `<p class="note">${missing(error) ? "notes. isn’t set up yet: run <b>lifeos/sql/notes.sql</b> in the Supabase SQL editor, then reload." : `Couldn’t load your notes: ${esc(error.message)}`}</p>`;
@@ -89,7 +109,7 @@ export async function mount(ctx) {
     $("add").hidden = false;
     notes = data;
     // What this device still holds shows as it stands here.
-    for (const e of Object.values(unsaved())) mergeRow({ id: e.id, space: e.space, title: e.title, body_text: e.body_text, updated_at: new Date().toISOString(), deleted_at: null });
+    for (const e of Object.values(unsaved())) mergeRow({ id: e.id, space: e.space, parent_id: e.parent ?? null, title: e.title, body_text: e.body_text, updated_at: new Date().toISOString(), deleted_at: null });
     renderList();
     renderBin();
   }
@@ -116,8 +136,8 @@ export async function mount(ctx) {
   async function push(e) {
     if (e.isNew) {
       const { data, error } = await supabase.from("notes")
-        .insert({ id: e.id, space: e.space, household_id: await householdFor(e.space), title: e.title, body: e.body, body_text: e.body_text })
-        .select(LIST_COLUMNS).single();
+        .insert({ id: e.id, space: e.space, parent_id: e.parent ?? null, household_id: await householdFor(e.space), title: e.title, body: e.body, body_text: e.body_text })
+        .select(listColumns).single();
       // Already there: an earlier save arrived but its reply didn't.
       if (error?.code === "23505") return push({ ...e, isNew: false, base: null });
       if (error) throw error;
@@ -125,19 +145,19 @@ export async function mount(ctx) {
     }
     let q = supabase.from("notes").update({ title: e.title, body: e.body, body_text: e.body_text }).eq("id", e.id);
     if (e.base) q = q.eq("updated_at", e.base);
-    const { data, error } = await q.select(LIST_COLUMNS);
+    const { data, error } = await q.select(listColumns);
     if (error) throw error;
     if (data.length) return data[0];
     // Nothing saved: another device saved first, or the note is gone.
     const { data: theirs, error: err2 } = await supabase.from("notes").select("*").eq("id", e.id).maybeSingle();
     if (err2) throw err2;
     if (!theirs) return push({ ...e, isNew: true });
-    const copy = await push({ ...e, id: crypto.randomUUID(), isNew: true, space: theirs.space, title: `${e.title || "Untitled"} (conflict copy)` });
+    const copy = await push({ ...e, id: crypto.randomUUID(), isNew: true, space: theirs.space, parent: theirs.parent_id, title: `${e.title || "Untitled"} (conflict copy)` });
     return { conflict: true, theirs, copy };
   }
 
   // ─── The open note ────────────────────────────────────────────────
-  let current = null;   // { id, isNew, base, space }
+  let current = null;   // { id, isNew, base, space, parent }
   let editor = null;
   let dirty = false, saving = null, saveTimer = 0, retryTimer = 0;
 
@@ -146,7 +166,7 @@ export async function mount(ctx) {
     $("status").classList.toggle("warn", warn);
   }
   function entryNow() {
-    return { id: current.id, isNew: current.isNew, base: current.base, space: current.space,
+    return { id: current.id, isNew: current.isNew, base: current.base, space: current.space, parent: current.parent,
       title: $("title").value.trim(), body: editor.getJSON(), body_text: editor.getText({ blockSeparator: "\n" }).trim() };
   }
   function changed() {
@@ -216,7 +236,7 @@ export async function mount(ctx) {
     }
     renderList();
   }
-  const pick = (row) => Object.fromEntries(LIST_COLUMNS.split(",").map(k => [k, row[k]]));
+  const pick = (row) => Object.fromEntries(listColumns.split(",").map(k => [k, row[k]]));
 
   // A fresh editor for each note, so undo can't reach into the last one.
   function makeEditor(content) {
@@ -250,11 +270,14 @@ export async function mount(ctx) {
   }
 
   function showNote(row, { focus = false } = {}) {
-    current = { id: row.id, isNew: Boolean(row.isNew), base: row.updated_at || null, space: row.space };
+    const parent = liveFolder(row.parent_id ?? row.parent)?.id ?? null;
+    current = { id: row.id, isNew: Boolean(row.isNew), base: row.updated_at || null, space: row.space, parent };
     dirty = false;
+    // The list behind it shows where the note lives.
+    goTo(row.space, parent);
     $("title").value = row.title || "";
     makeEditor(row.body);
-    $("back-label").textContent = SPACES.find(s => s.id === row.space)?.label || "notes";
+    labelBack();
     $("empty").hidden = true;
     $("note").hidden = false;
     $("shell").dataset.view = "note";
@@ -284,7 +307,7 @@ export async function mount(ctx) {
     if (!ready) return;
     stopMic();
     await saveNow();
-    showNote({ id: crypto.randomUUID(), isNew: true, space, title: "", body: null }, { focus: "title" });
+    showNote({ id: crypto.randomUUID(), isNew: true, space, parent_id: folder, title: "", body: null }, { focus: "title" });
   }
 
   async function closeNote() {
@@ -317,18 +340,172 @@ export async function mount(ctx) {
     renderList(); renderBin();
     toast("Moved to the bin.", { action: "Undo", onAction: () => restore(note.id) });
   }
+  // What went in the bin together: a note, or a folder and all it held.
+  const group = (n) => [n.id, ...descendants(n.id, (m) => m.deleted_at === n.deleted_at)];
   async function restore(id) {
-    const { error } = await supabase.from("notes").update({ deleted_at: null }).eq("id", id);
+    const n = byId(id);
+    if (!n) return;
+    const ids = group(n);
+    const { error } = await supabase.from("notes").update({ deleted_at: null }).in("id", ids);
     if (error) { toast(`Couldn’t bring it back: ${error.message}`, { err: true }); return; }
-    mergeRow({ id, deleted_at: null });
+    for (const i of ids) mergeRow({ id: i, deleted_at: null });
+    // Its folder is still in the bin (or gone): back at the top of the space.
+    if (n.parent_id && !liveFolder(n.parent_id)) {
+      await supabase.from("notes").update({ parent_id: null }).eq("id", id);
+      mergeRow({ id, parent_id: null });
+    }
     renderList(); renderBin();
   }
   async function deleteForGood(id) {
-    if (!confirm("Delete this note for good? It can’t be brought back.")) return;
-    const { error } = await supabase.from("notes").delete().eq("id", id);
+    const n = byId(id);
+    const ids = group(n);
+    if (!confirm(`Delete ${isFolder(n) ? "this folder and everything in it" : "this note"} for good? It can’t be brought back.`)) return;
+    const { error } = await supabase.from("notes").delete().in("id", ids);
     if (error) { toast(`Couldn’t delete it: ${error.message}`, { err: true }); return; }
-    notes = notes.filter(n => n.id !== id);
+    notes = notes.filter(m => !ids.includes(m.id));
     renderBin();
+  }
+
+  // ─── Folders ──────────────────────────────────────────────────────
+  const byId = (id) => id ? notes.find(n => n.id === id) : undefined;
+  const isFolder = (n) => n?.kind === "folder";
+  const liveFolder = (id) => { const f = byId(id); return isFolder(f) && !f.deleted_at ? f : null; };
+  // Where something shows: in its folder if that's still there, else the top of its space.
+  const placeOf = (n) => { const f = liveFolder(n.parent_id); return f && f.space === n.space ? f.id : null; };
+  function descendants(id, keep = () => true) {
+    const out = [], queue = [id];
+    while (queue.length) {
+      const p = queue.shift();
+      for (const n of notes) if (n.parent_id === p && keep(n) && !out.includes(n.id)) { out.push(n.id); queue.push(n.id); }
+    }
+    return out;
+  }
+  function pathTo(id) {
+    const out = [];
+    for (let f = liveFolder(id); f && out.length < 30; f = liveFolder(f.parent_id)) out.unshift(f);
+    return out;
+  }
+  const folderName = (f) => f.title || "Untitled folder";
+  function labelBack() {
+    const f = current && liveFolder(current.parent);
+    $("back-label").textContent = f ? folderName(f) : SPACES.find(x => x.id === current?.space)?.label || "notes";
+  }
+
+  // A name, from the little sheet. Resolves to the name, or null if cancelled.
+  let nameDone = null;
+  function askName({ heading, value = "", ok }) {
+    $("name-title").textContent = heading;
+    $("name-ok").textContent = ok;
+    $("name-input").value = value;
+    $("name-dlg").showModal();
+    $("name-input").focus();
+    $("name-input").select();
+    return new Promise((res) => { nameDone = res; });
+  }
+  function finishName(value) {
+    const done = nameDone;
+    nameDone = null;
+    if ($("name-dlg").open) $("name-dlg").close();
+    done?.(value);
+  }
+  $("name-form").addEventListener("submit", (e) => { e.preventDefault(); finishName($("name-input").value.trim() || null); });
+  $("name-cancel").addEventListener("click", () => finishName(null));
+  $("name-dlg").addEventListener("close", () => finishName(null));
+
+  async function newFolder() {
+    if (!ready || !folders) return;
+    const name = await askName({ heading: "New folder", ok: "Make folder" });
+    if (!name) return;
+    const { data, error } = await supabase.from("notes")
+      .insert({ id: crypto.randomUUID(), kind: "folder", title: name, space, parent_id: folder, household_id: await householdFor(space) })
+      .select(listColumns).single();
+    if (error) { toast(`Couldn’t make the folder: ${error.message}`, { err: true }); console.error("notes.: new folder failed:", error.message); return; }
+    mergeRow(data);
+    renderList();
+  }
+  async function renameFolder(id) {
+    const f = byId(id);
+    const name = await askName({ heading: "Rename folder", value: f.title, ok: "Rename" });
+    if (!name || name === f.title) return;
+    const { error } = await supabase.from("notes").update({ title: name }).eq("id", id);
+    if (error) { toast(`Couldn’t rename it: ${error.message}`, { err: true }); return; }
+    mergeRow({ id, title: name });
+    renderList(); labelBack();
+  }
+  async function deleteFolder(id) {
+    const f = byId(id);
+    const inside = descendants(id, (n) => !n.deleted_at);
+    if (!confirm(`Move “${folderName(f)}”${inside.length ? ` and the ${inside.length} thing${inside.length === 1 ? "" : "s"} in it` : ""} to the bin?`)) return;
+    const ids = [id, ...inside];
+    if (current && ids.includes(current.id)) await closeNote();
+    const at = new Date().toISOString();
+    const { error } = await supabase.from("notes").update({ deleted_at: at }).in("id", ids);
+    if (error) { toast(`Couldn’t move it to the bin: ${error.message}`, { err: true }); console.error("notes.: folder bin failed:", error.message); return; }
+    for (const i of ids) mergeRow({ id: i, deleted_at: at });
+    goTo(space, liveFolder(f.parent_id)?.id);
+    renderList(); renderBin();
+    toast("Folder moved to the bin.", { action: "Undo", onAction: () => restore(id) });
+  }
+
+  // Moving a note or folder: to the top of a space, or into a folder.
+  function openMove(id) {
+    const item = byId(id) || (current?.id === id ? { id, space: current.space, parent_id: current.parent } : null);
+    if (!item) return;
+    const blocked = new Set(isFolder(item) ? [id, ...descendants(id)] : []);
+    const here = `${item.space}|${placeOf(item) || ""}`;
+    const button = (sp, parent, label, depth = 0) =>
+      `<button type="button" data-space="${sp}" data-parent="${parent || ""}"${`${sp}|${parent || ""}` === here ? ' aria-current="true"' : ""} style="padding-left:${10 + depth * 18}px">${parent ? FOLDER_ICON : ""}${esc(label)}${`${sp}|${parent || ""}` === here ? " (here)" : ""}</button>`;
+    const tree = (sp, parent, depth) => notes
+      .filter(n => isFolder(n) && !n.deleted_at && n.space === sp && placeOf(n) === parent && !blocked.has(n.id))
+      .sort((a, b) => folderName(a).localeCompare(folderName(b)))
+      .map(f => button(sp, f.id, folderName(f), depth) + tree(sp, f.id, depth + 1)).join("");
+    $("move-title").textContent = `Move “${isFolder(item) ? folderName(item) : naming(item).name || "Untitled"}” to`;
+    $("move-list").innerHTML = SPACES.map(sp => `<p class="space-name">${esc(sp.label)}</p>${button(sp.id, null, `Top of ${sp.label}`)}${folders ? tree(sp.id, null, 1) : ""}`).join("");
+    $("move-list").dataset.id = id;
+    $("move-dlg").showModal();
+  }
+  $("move-cancel").addEventListener("click", () => $("move-dlg").close());
+  $("move-list").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-space]");
+    if (!b || b.getAttribute("aria-current") === "true") return;
+    $("move-dlg").close();
+    moveItem($("move-list").dataset.id, b.dataset.space, b.dataset.parent || null);
+  });
+
+  async function moveItem(id, toSpace, toParent) {
+    // A new note not saved yet just changes where it will be saved.
+    if (current?.id === id && current.isNew && !byId(id)) {
+      current.space = toSpace; current.parent = toParent;
+      goTo(toSpace, toParent); labelBack(); renderList();
+      if (dirty) keepUnsaved(entryNow());
+      return;
+    }
+    if (current?.id === id) await saveNow();
+    const item = byId(id);
+    if (!item) return;
+    // Into another space: everything inside goes too.
+    const ids = toSpace !== item.space ? [id, ...descendants(id)] : [id];
+    const household_id = await householdFor(toSpace);
+    const first = await supabase.from("notes").update({ parent_id: toParent, space: toSpace, household_id }).eq("id", id);
+    const rest = ids.length > 1 && !first.error ? await supabase.from("notes").update({ space: toSpace, household_id }).in("id", ids.slice(1)) : {};
+    const error = first.error || rest.error;
+    if (error) {
+      toast(error.code === "42501" ? "Only the person who wrote it can take it out of joint." : `Couldn’t move it: ${error.message}`, { err: true });
+      if (error.code !== "42501") console.error("notes.: move failed:", error.message);
+      return;
+    }
+    mergeRow({ id, parent_id: toParent, space: toSpace, household_id });
+    for (const i of ids.slice(1)) mergeRow({ id: i, space: toSpace, household_id });
+    if (current && ids.includes(current.id)) {
+      current.space = toSpace;
+      if (current.id === id) current.parent = toParent;
+      goTo(current.space, current.parent);
+      labelBack();
+    } else if (isFolder(item)) goTo(toSpace, id);
+    else goTo(toSpace, toParent);
+    renderList(); renderBin();
+    const f = liveFolder(toParent);
+    toast(`Moved to ${f ? folderName(f) : SPACES.find(x => x.id === toSpace).label}.`);
   }
 
   // ─── Lists ────────────────────────────────────────────────────────
@@ -349,24 +526,40 @@ export async function mount(ctx) {
 
   function renderList() {
     for (const t of $("tabs").querySelectorAll(".tab")) t.setAttribute("aria-pressed", String(t.dataset.space === space));
-    if (!ready) { $("list").innerHTML = ""; return; }
-    const shown = notes.filter(n => n.space === space && !n.deleted_at);
+    $("new-folder").hidden = !ready || !folders;
+    if (!ready) { $("list").innerHTML = ""; $("crumbs").innerHTML = ""; $("folder-tools").hidden = true; return; }
+    if (folder && liveFolder(folder)?.space !== space) folder = null;
     const label = SPACES.find(s => s.id === space).label;
-    $("list").innerHTML = shown.length ? shown.map(n => {
+    const path = pathTo(folder);
+    $("crumbs").innerHTML = path.length ? [`<button type="button" data-folder="">${esc(label)}</button>`,
+      ...path.slice(0, -1).map(f => `<button type="button" data-folder="${f.id}">${esc(folderName(f))}</button>`),
+      `<span class="here">${esc(folderName(path.at(-1)))}</span>`].join(`<span aria-hidden="true">/</span>`) : "";
+    $("folder-tools").hidden = !folder;
+    const here = notes.filter(n => n.space === space && !n.deleted_at && placeOf(n) === folder);
+    const inFolders = here.filter(isFolder).sort((a, b) => folderName(a).localeCompare(folderName(b)));
+    const pages = here.filter(n => !isFolder(n)).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    const count = (f) => { const k = notes.filter(n => n.parent_id === f.id && !n.deleted_at).length; return k ? `${k} inside` : "empty"; };
+    const folderItems = inFolders.map(f => `<button type="button" class="item folder" data-folder="${f.id}">
+        <span class="ic" aria-hidden="true">${FOLDER_ICON}</span><span class="name">${esc(folderName(f))}</span><span class="sub">${count(f)}</span></button>`).join("");
+    $("list").innerHTML = here.length ? folderItems + pages.map(n => {
       const { name, rest } = naming(n);
       const shared = n.space === "joint" && !n.household_id ? " · only you" : "";
       return `<button type="button" class="item${current?.id === n.id ? " sel" : ""}" data-id="${n.id}">
         <span class="name${name ? "" : " untitled"}">${esc(name || "Untitled")}</span>
         <span class="sub"><span class="when">${esc(when(n.updated_at))}${shared}</span>${rest ? ` · ${esc(rest.slice(0, 140))}` : ""}</span></button>`;
-    }).join("") : `<p class="empty">Nothing in ${esc(label)} yet. Tap + to start a note.</p>`;
+    }).join("") : `<p class="empty">${folder ? "This folder is empty. Tap + to add a note." : `Nothing in ${esc(label)} yet. Tap + to start a note.`}</p>`;
   }
 
   function renderBin() {
-    const binned = notes.filter(n => n.deleted_at).sort((a, b) => b.deleted_at.localeCompare(a.deleted_at));
+    // A folder binned with what was in it shows once, as the folder.
+    const binned = notes.filter(n => n.deleted_at && byId(n.parent_id)?.deleted_at !== n.deleted_at)
+      .sort((a, b) => b.deleted_at.localeCompare(a.deleted_at));
     $("bin-list").innerHTML = binned.length ? binned.map(n => {
       const left = Math.max(1, BIN_DAYS - Math.floor((Date.now() - Date.parse(n.deleted_at)) / 864e5));
-      return `<div class="bin-item" data-id="${n.id}"><div class="what"><div class="name">${esc(naming(n).name || "Untitled")}</div>
-        <div class="sub">${esc(SPACES.find(s => s.id === n.space)?.label || "")} · gone for good in ${left} day${left === 1 ? "" : "s"}</div></div>
+      const held = isFolder(n) ? group(n).length - 1 : 0;
+      const name = isFolder(n) ? folderName(n) : naming(n).name || "Untitled";
+      return `<div class="bin-item" data-id="${n.id}"><div class="what"><div class="name">${esc(name)}</div>
+        <div class="sub">${isFolder(n) ? `folder${held ? `, ${held} inside` : ""} · ` : ""}${esc(SPACES.find(s => s.id === n.space)?.label || "")} · gone for good in ${left} day${left === 1 ? "" : "s"}</div></div>
         <button type="button" class="small-btn" data-act="restore">Restore</button>
         <button type="button" class="small-btn danger" data-act="forget" aria-label="Delete for good">Delete</button></div>`;
     }).join("") : `<p class="empty">The bin is empty.</p>`;
@@ -506,14 +699,28 @@ export async function mount(ctx) {
   $("tabs").addEventListener("click", (e) => {
     const t = e.target.closest(".tab");
     if (!t) return;
-    space = t.dataset.space;
-    writeJSON(SPACE_KEY, space);
+    goTo(t.dataset.space, readJSON(FOLDER_KEY, {})[t.dataset.space]);
     renderList();
   });
   $("list").addEventListener("click", (e) => {
     const item = e.target.closest(".item");
-    if (item) openNote(item.dataset.id);
+    if (!item) return;
+    if (item.dataset.folder) { goTo(space, item.dataset.folder); renderList(); }
+    else openNote(item.dataset.id);
   });
+  $("crumbs").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-folder]");
+    if (b) { goTo(space, b.dataset.folder); renderList(); }
+  });
+  $("new-folder").addEventListener("click", newFolder);
+  $("folder-tools").addEventListener("click", (e) => {
+    const act = e.target.closest("button[data-act]")?.dataset.act;
+    if (!folder || !act) return;
+    if (act === "rename") renameFolder(folder);
+    else if (act === "move") openMove(folder);
+    else deleteFolder(folder);
+  });
+  $("move").addEventListener("click", () => { if (current) openMove(current.id); });
   $("add").addEventListener("click", newNote);
   $("back").addEventListener("click", closeNote);
   $("delete").addEventListener("click", binNote);
