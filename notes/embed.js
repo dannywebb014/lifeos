@@ -36,6 +36,37 @@ import { fill, docFor } from "/lifeos/embed.js";
 import { householdId } from "/lifeos/shared/hubtasks.js?v=5";
 import * as speech from "/lifeos/shared/speech.js?v=15";
 import { parseTasks } from "/lifeos/shared/parse.js?v=26";
+import { toMarkdown, fromMarkdown, plainText } from "./markdown.js?v=1";
+
+// Coloured blocks: a tint behind a line, heading, quote or code block,
+// kept on the block (data-color; the colours are in app.css).
+const BLOCK_COLOURS = [["yellow", "#f2c94c"], ["orange", "#f2994a"], ["red", "#eb5757"], ["pink", "#e96fb0"], ["purple", "#9b6fe0"], ["blue", "#4f8fe0"], ["green", "#4fae6a"], ["grey", "#8a8f98"]];
+const COLOURED = ["paragraph", "heading", "blockquote", "codeBlock"];
+const BlockColour = Extension.create({
+  name: "blockColour",
+  addGlobalAttributes() {
+    return [{ types: COLOURED, attributes: { blockColor: { default: null, keepOnSplit: false,
+      parseHTML: (el) => el.getAttribute("data-color"), renderHTML: (a) => (a.blockColor ? { "data-color": a.blockColor } : {}) } } }];
+  },
+});
+
+// Templates to start a note from: these, and any saved from a note's ⋯ menu
+// (kept in notesState.templates). Their checklists have no tasks until used.
+const P = (t) => ({ type: "paragraph", content: t ? [{ type: "text", text: t }] : [] });
+const H = (t) => ({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: t }] });
+const CHECKS = (...items) => ({ type: "taskList", content: items.map(t => ({ type: "taskItem", attrs: { checked: false }, content: [P(t)] })) });
+const BULLETS = (...items) => ({ type: "bulletList", content: items.map(t => ({ type: "listItem", content: [P(t)] })) });
+const doc = (...content) => ({ type: "doc", content });
+const BUILT_IN_TEMPLATES = [
+  { id: "t-meeting", name: "Meeting", title: "Meeting {date}", icon: "💬", body: doc(H("Who"), BULLETS(""), H("Notes"), P(""), H("Actions"), CHECKS("")) },
+  { id: "t-week", name: "Weekly review", title: "Week of {date}", icon: "🗓️", body: doc(H("Went well"), BULLETS(""), H("Didn’t go so well"), BULLETS(""), H("Three for next week"), CHECKS("", "", "")) },
+  { id: "t-day", name: "Daily plan", title: "", icon: "☀️", body: doc(H("Top three"), CHECKS("", "", ""), H("Notes"), P(""), H("Grateful for"), BULLETS("")) },
+  { id: "t-project", name: "Project", title: "", icon: "🚀", body: doc(H("Goal"), P(""), H("Steps"), CHECKS(""), H("Notes"), P("")) },
+  { id: "t-trip", name: "Trip", title: "", icon: "✈️", body: doc(H("Dates"), P(""), H("Packing"), CHECKS("Passport", "Chargers", ""), H("Plans"), BULLETS("")) },
+  { id: "t-book", name: "Book notes", title: "", icon: "📚", body: doc(H("Author"), P(""), H("Thoughts"), P(""), H("Quotes"), { type: "blockquote", content: [P("")] }) },
+];
+// A copy without task ids, so a template's lines become new tasks.
+const freshBody = (body) => JSON.parse(JSON.stringify(body || doc(P("")), (k, v) => (k === "taskId" ? undefined : v)));
 
 const CHRONO = "https://cdn.jsdelivr.net/npm/chrono-node@2.10.1/+esm";
 let chrono = null;
@@ -62,7 +93,7 @@ const SPACES_KEY = "notes.spaces";   // also read by search (spotlight.js)
 // favourite colours, and each space's look for light and dark mode.
 const STATE_KEY = "notes.state";
 const TASK_SPACES = ["my", "work", "joint"];   // the spaces tasks. has; a note in another space makes my space tasks
-const BASE_COLUMNS = "id,space,title,body_text,household_id,deleted_at,updated_at,parent_id,position,pinned,day";
+const BASE_COLUMNS = "id,space,title,body_text,household_id,deleted_at,updated_at,parent_id,position,pinned,day,style";
 const SAVE_AFTER = 1000;
 const BIN_DAYS = 30;
 const UNSAVED = "notes.unsaved";
@@ -114,6 +145,16 @@ const today = () => isoDay(new Date());
 const shiftDay = (iso, n) => { const [y, m, d] = iso.split("-").map(Number); return isoDay(new Date(y, m - 1, d + n)); };
 const dayLabel = (iso) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d);
   return dt.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", ...(y !== new Date().getFullYear() ? { year: "numeric" } : {}) }); };
+// Icons for notes and folders: an emoji kept as style.icon (it isn't part of
+// a note's look, so a note with only an icon still follows its space's look).
+const EMOJI = ["📝", "📒", "📓", "📔", "📕", "📗", "📘", "📙", "📚", "🗂️", "📁", "🗒️", "📌", "⭐", "❤️", "💡",
+  "✅", "🎯", "🚀", "🏠", "🌴", "🌿", "🍎", "🍳", "🥗", "🏃", "🧘", "💪", "✈️", "🗺️", "🎵", "🎬",
+  "📺", "🎮", "💼", "💰", "🛒", "🎁", "🐶", "🐱", "👶", "👪", "🎓", "🔧", "🧠", "🌙", "☀️", "🔥",
+  "🌈", "🎨", "📷", "✍️", "🗓️", "⏰", "💬", "🔒", "🎄", "🎂", "⚽", "🏔️", "🌊", "🍷", "☕", "🧳"];
+const iconOf = (n) => n?.style?.icon || "";
+// A note's own look: any style beyond its icon.
+const ownLook = (style) => Boolean(style && Object.keys(style).some(k => k !== "icon"));
+const lookOnly = (style) => { if (!style) return null; const { icon, ...rest } = style; void icon; return Object.keys(rest).length ? rest : null; };
 const DOTS = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>`;
 const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
 
@@ -129,7 +170,16 @@ const BLOCKS = [
   { id: "quote", label: "Quote", ic: "❝", words: "blockquote", run: (c) => c.toggleBlockquote() },
   { id: "code", label: "Code", ic: "</>", words: "codeblock pre", run: (c) => c.toggleCodeBlock() },
   { id: "divider", label: "Divider", ic: "—", words: "line rule hr separator", run: (c) => c.setHorizontalRule() },
+  ...[["yellow", "Yellow"], ["green", "Green"], ["blue", "Blue"], ["pink", "Pink"], ["purple", "Purple"], ["orange", "Orange"], ["red", "Red"], ["grey", "Grey"]].map(([k, l]) => (
+    { id: `c-${k}`, label: `${l} block`, ic: "■", tint: k, words: `colour color highlight block ${k}`, run: (c) => colourBlocks(c, k) })),
+  { id: "c-none", label: "No colour", ic: "□", words: "colour color plain clear", run: (c) => colourBlocks(c, null) },
 ];
+// Colours the blocks in the selection (or the one the cursor is in).
+function colourBlocks(chain, colour) {
+  let c = chain;
+  for (const t of COLOURED) c = c.updateAttributes(t, { blockColor: colour });
+  return c;
+}
 
 export async function mount(ctx) {
   const { root, asset, supabase } = ctx;
@@ -383,6 +433,7 @@ export async function mount(ctx) {
         NoteTaskItem.configure({ nested: true }),
         Placeholder.configure({ placeholder: "Write something, or type / for more" }),
         Slash,
+        BlockColour,
       ],
       content: content || "",
       editorProps: { attributes: { "aria-label": "Note", autocapitalize: "sentences", spellcheck: "true" } },
@@ -414,6 +465,7 @@ export async function mount(ctx) {
     $("pin").hidden = $("move").hidden = Boolean(current.day);
     if (current.day) { $("day-title").textContent = dayLabel(current.day); $("day-input").value = current.day; }
     paintPin();
+    paintIcon();
     $("title").value = row.title || "";
     makeEditor(row.body);
     labelBack();
@@ -451,7 +503,8 @@ export async function mount(ctx) {
     const draft = Object.values(unsaved()).find(e => e.day === iso);
     const there = notes.find(n => n.day === iso && !n.deleted_at) || (draft && { id: draft.id });
     if (there) return openNote(there.id);
-    showNote({ id: crypto.randomUUID(), isNew: true, space: "my", day: iso, title: "", body: null }, { focus: "end" });
+    const t = templates().find(x => x.id === notesState.dailyTemplate);
+    showNote({ id: crypto.randomUUID(), isNew: true, space: "my", day: iso, title: "", body: t ? freshBody(t.body) : null }, { focus: "end" });
   }
 
   async function newNote() {
@@ -721,7 +774,7 @@ export async function mount(ctx) {
   const modeName = () => (darkMode.matches ? "dark" : "light");
   const spaceOf = (c) => (c?.day ? "my" : c?.space || space);
   const lookFor = (sp) => notesState.looks?.[sp]?.[modeName()] || null;
-  const lookNow = () => (current ? current.style || lookFor(spaceOf(current)) : lookFor(space));
+  const lookNow = () => (current ? (ownLook(current.style) ? current.style : lookFor(spaceOf(current))) : lookFor(space));
   function showLook() { applyStyle(lookNow()); }
   darkMode.addEventListener("change", () => { showLook(); if (!$("style-pop").hidden) paintStyle(); });
 
@@ -737,7 +790,7 @@ export async function mount(ctx) {
   function setStyle(change, { soon = false } = {}) {
     if (!current) return;
     // A note following its space's look starts its own from that look.
-    const next = { ...(current.style || lookFor(spaceOf(current)) || {}), ...change };
+    const next = { ...(ownLook(current.style) ? current.style : { ...(lookFor(spaceOf(current)) || {}), icon: current.style?.icon }), ...change };
     for (const k of Object.keys(next)) if (next[k] == null || next[k] === "") delete next[k];
     commitStyle(Object.keys(next).length ? next : null, { soon });
   }
@@ -762,7 +815,7 @@ export async function mount(ctx) {
     }, soon ? 600 : 0);
   }
   function paintStyle() {
-    const on = current?.style || lookFor(spaceOf(current)) || {};
+    const on = (ownLook(current?.style) ? current.style : lookFor(spaceOf(current))) || {};
     const { card } = resolve(on);
     const sw = (kind, key, p) => `<button type="button" class="swatch${key ? "" : " none"}" data-kind="${kind}" data-key="${key || ""}" aria-pressed="${(on[kind] || "") === (key || "")}"
       title="${p ? p.label : "None"}" aria-label="${p ? p.label : "None"}"${p ? ` style="background:${kind === "card" ? p.bg : p.css}"` : ""}></button>`;
@@ -788,12 +841,235 @@ export async function mount(ctx) {
     paintFavs(on);
     // The space's look, for the mode the device is in.
     const sp = spaceOf(current), label = SPACES.find(x => x.id === sp)?.label || "this space", mode = modeName();
-    const own = Boolean(current?.style), has = Boolean(lookFor(sp));
+    const own = ownLook(current?.style), has = Boolean(lookFor(sp));
     $("style-foot").innerHTML = `<p>${own ? "This note has its own look." : has ? `Following ${esc(label)}’s ${mode}-mode look.` : `Pick colours, then you can make them ${esc(label)}’s ${mode}-mode look.`}</p>
       <div class="row">${own ? `<button type="button" class="chip-btn" data-look="set">Make this ${esc(label)}’s ${mode} look</button>` : ""}
       ${own && has ? `<button type="button" class="chip-btn" data-look="follow">Use ${esc(label)}’s look</button>` : ""}
       ${has ? `<button type="button" class="chip-btn" data-look="clear">Clear ${esc(label)}’s ${mode} look</button>` : ""}</div>`;
   }
+  // ─── Block colours (the toolbar's paint pot) ──────────────────────
+  function openBlockColours() {
+    const pop = $("block-pop");
+    pop.innerHTML = `<button type="button" class="none" data-colour="" title="No colour" aria-label="No colour"></button>` +
+      BLOCK_COLOURS.map(([k, c]) => `<button type="button" data-colour="${k}" style="background:${c}" title="${k}" aria-label="${k}"></button>`).join("");
+    pop.hidden = false;
+    const r = $("color-btn").getBoundingClientRect(), page = document.body.getBoundingClientRect();
+    pop.style.left = `${Math.max(8, Math.min(r.left - page.left, page.width - pop.offsetWidth - 8))}px`;
+    pop.style.top = `${r.bottom - page.top + 6}px`;
+  }
+  function closeBlockColours() { $("block-pop").hidden = true; }
+  $("block-pop").addEventListener("pointerdown", (e) => e.preventDefault());   // keep the note's selection
+  $("block-pop").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-colour]");
+    if (!b || !editor) return;
+    colourBlocks(editor.chain().focus(), b.dataset.colour || null).run();
+    closeBlockColours();
+  });
+  document.addEventListener("pointerdown", (e) => { if (!$("block-pop").hidden && !e.target.closest("#block-pop, #color-btn")) closeBlockColours(); });
+
+  // ─── Templates ────────────────────────────────────────────────────
+  const templates = () => [...(notesState.templates || []), ...BUILT_IN_TEMPLATES];
+  const filled = (title) => (title || "").replace("{date}", new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" }));
+  function openTemplates() {
+    const mine = notesState.templates || [];
+    const row = (t, own) => `<div class="tpl-row"><button type="button" class="use" role="menuitem" data-tpl="${t.id}">${t.icon ? `${esc(t.icon)} ` : ""}${esc(t.name)}</button>${own ? `<button type="button" class="del" data-del="${t.id}" aria-label="Delete the template ${esc(t.name)}" title="Delete">×</button>` : ""}</div>`;
+    $("tpl-list").innerHTML = (mine.length ? `<p class="tpl-sep">Yours</p>${mine.map(t => row(t, true)).join("")}<p class="tpl-sep">Ready-made</p>` : "")
+      + BUILT_IN_TEMPLATES.map(t => row(t, false)).join("");
+    $("tpl-daily").innerHTML = `<option value="">A blank page</option>` + templates().map(t => `<option value="${t.id}"${notesState.dailyTemplate === t.id ? " selected" : ""}>${esc(t.name)}</option>`).join("");
+    const pop = $("tpl-pop");
+    pop.hidden = false;
+    const r = $("tpl-btn").getBoundingClientRect(), page = document.body.getBoundingClientRect();
+    pop.style.left = `${Math.max(8, Math.min(r.left - page.left, page.width - pop.offsetWidth - 8))}px`;
+    pop.style.top = `${r.bottom - page.top + 6}px`;
+  }
+  function closeTemplates() { $("tpl-pop").hidden = true; }
+  $("tpl-btn").addEventListener("click", () => ($("tpl-pop").hidden ? openTemplates() : closeTemplates()));
+  $("tpl-pop").addEventListener("click", async (e) => {
+    const del = e.target.closest("[data-del]");
+    if (del) {
+      const t = (notesState.templates || []).find(x => x.id === del.dataset.del);
+      if (t && confirm(`Delete the template “${t.name}”?`)) { await saveState({ templates: notesState.templates.filter(x => x.id !== t.id), ...(notesState.dailyTemplate === t.id ? { dailyTemplate: null } : {}) }); openTemplates(); }
+      return;
+    }
+    const use = e.target.closest("[data-tpl]");
+    if (!use) return;
+    closeTemplates();
+    newFromTemplate(templates().find(t => t.id === use.dataset.tpl));
+  });
+  $("tpl-daily").addEventListener("change", () => saveState({ dailyTemplate: $("tpl-daily").value || null }));
+  document.addEventListener("pointerdown", (e) => { if (!$("tpl-pop").hidden && !e.target.closest("#tpl-pop, #tpl-btn")) closeTemplates(); });
+  async function newFromTemplate(t) {
+    if (!t || !ready) return;
+    stopMic();
+    await flush();
+    const style = t.style || t.icon ? { ...(t.style || {}), ...(t.icon ? { icon: t.icon } : {}) } : null;
+    showNote({ id: crypto.randomUUID(), isNew: true, space, parent_id: folder, title: filled(t.title), body: freshBody(t.body), style }, { focus: t.title ? "end" : "title" });
+    changed();
+  }
+  async function saveAsTemplate() {
+    if (!current || !editor) return;
+    const name = await askName({ heading: "Save as a template", value: $("title").value.trim() || "My template", ok: "Save template" });
+    if (!name) return;
+    const t = { id: `u-${crypto.randomUUID().slice(0, 8)}`, name, title: current.day ? "" : $("title").value.trim(), icon: iconOf(current) || "", style: lookOnly(current.style), body: freshBody(editor.getJSON()) };
+    await saveState({ templates: [...(notesState.templates || []), t] });
+    toast(`Saved “${name}” as a template.`);
+  }
+
+  // ─── The note's ⋯ menu ────────────────────────────────────────────
+  function openNoteMenu() {
+    const m = $("note-menu");
+    m.querySelector('[data-act="icon"]').hidden = Boolean(current?.day);
+    m.hidden = false;
+    const r = $("note-more").getBoundingClientRect(), page = document.body.getBoundingClientRect();
+    m.style.left = `${Math.max(8, Math.min(r.right - page.left - m.offsetWidth, page.width - m.offsetWidth - 8))}px`;
+    m.style.top = `${r.bottom - page.top + 4}px`;
+  }
+  function closeNoteMenu() { $("note-menu").hidden = true; }
+  $("note-more").addEventListener("click", () => ($("note-menu").hidden ? openNoteMenu() : closeNoteMenu()));
+  $("note-menu").addEventListener("click", (e) => {
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (!act || !current) return;
+    closeNoteMenu();
+    if (act === "icon") openEmoji(current.id, $("icon-btn"));
+    else if (act === "template") saveAsTemplate();
+    else downloadMarkdown();
+  });
+  document.addEventListener("pointerdown", (e) => { if (!$("note-menu").hidden && !e.target.closest("#note-menu, #note-more")) closeNoteMenu(); });
+  // The open note as a .md file.
+  function downloadMarkdown() {
+    const title = current.day ? dayLabel(current.day) : $("title").value.trim() || "Untitled";
+    const md = toMarkdown(editor.getJSON(), title);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown;charset=utf-8" }));
+    a.download = `${title.replace(/[\\/:*?"<>|]+/g, "-").slice(0, 80)}.md`;
+    document.body.append(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  // ─── Importing Markdown (files, a folder, or a zip such as Craft's export) ──
+  function openImport() {
+    const f = liveFolder(folder);
+    $("import-where").textContent = `They’ll go in ${f ? `“${folderName(f)}” in ` : ""}${SPACES.find(x => x.id === space)?.label || "my space"}.`;
+    $("import-status").textContent = "";
+    $("import-dlg").showModal();
+  }
+  $("import-btn").addEventListener("click", openImport);
+  $("import-close").addEventListener("click", () => $("import-dlg").close());
+  for (const id of ["import-files", "import-folder"]) $(id).addEventListener("change", async (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    if (files.length) await importFiles(files);
+  });
+  async function importFiles(files) {
+    const status = (t) => { $("import-status").textContent = t; };
+    status("Reading…");
+    // Every Markdown file, with its path inside the folder or zip.
+    const docs = [];
+    for (const f of files) {
+      const path = f.webkitRelativePath || f.name;
+      if (/\.zip$/i.test(f.name)) {
+        const { unzipSync, strFromU8 } = await import("/lifeos/vendor/fflate-0.8.2.js");
+        const entries = unzipSync(new Uint8Array(await f.arrayBuffer()));
+        for (const [p, bytes] of Object.entries(entries)) if (/\.(md|markdown|txt)$/i.test(p) && !/(^|\/)(__MACOSX|\.)/.test(p)) docs.push({ path: `${f.name.replace(/\.zip$/i, "")}/${p}`, text: strFromU8(bytes) });
+      } else if (/\.(md|markdown|txt)$/i.test(f.name)) docs.push({ path, text: await f.text() });
+    }
+    if (!docs.length) { status("No Markdown files there (.md, .markdown or .txt)."); return; }
+    // Folders as they were; a single file goes straight in.
+    const household_id = await householdFor(space);
+    const rows = [], made = new Map();
+    const folderFor = (parts) => {
+      let parent = folder;
+      for (let i = 0; i < parts.length; i++) {
+        const key = parts.slice(0, i + 1).join("/");
+        if (!made.has(key)) {
+          const id = crypto.randomUUID();
+          made.set(key, id);
+          rows.push({ id, kind: "folder", title: parts[i], space, parent_id: parent, household_id });
+        }
+        parent = made.get(key);
+      }
+      return parent;
+    };
+    // Drop the common leading folder of a single-folder zip (Craft wraps its export in one).
+    const split = docs.map(d => d.path.split("/").filter(Boolean));
+    while (split.length > 1 && split.every(p => p.length > 1 && p[0] === split[0][0])) split.forEach(p => p.shift());
+    if (split.length === 1) split[0] = [split[0].at(-1)];
+    docs.forEach((d, i) => {
+      const parts = split[i];
+      const name = parts.at(-1).replace(/\.(md|markdown|txt)$/i, "");
+      const { title, doc: body } = fromMarkdown(d.text);
+      rows.push({ id: crypto.randomUUID(), kind: "page", title: (title || name).slice(0, 500), body, body_text: plainText(body).slice(0, 500000), space, parent_id: folderFor(parts.slice(0, -1)), household_id });
+    });
+    const folders = rows.filter(r => r.kind === "folder"), pages = rows.filter(r => r.kind === "page");
+    let done = 0;
+    for (const chunk of [...Array(Math.ceil(folders.length / 200)).keys()].map(k => folders.slice(k * 200, k * 200 + 200))
+      .concat([...Array(Math.ceil(pages.length / 100)).keys()].map(k => pages.slice(k * 100, k * 100 + 100)))) {
+      const { data, error } = await supabase.from("notes").insert(chunk).select(listColumns);
+      if (error) { status(`Stopped after ${done} of ${pages.length}: ${error.message}`); console.error("notes.: import failed:", error.message); break; }
+      for (const r of data) mergeRow(r);
+      done += chunk.filter(r => r.kind === "page").length;
+      status(`Imported ${done} of ${pages.length}…`);
+    }
+    for (const id of made.values()) setOpen(id, true);
+    setOpen(folder, true);
+    renderList();
+    if (done === pages.length) status(`Imported ${done} note${done === 1 ? "" : "s"}${folders.length ? ` in ${folders.length} folder${folders.length === 1 ? "" : "s"}` : ""}. Checklists become tasks when each note is first opened.`);
+  }
+
+  // ─── Icons ────────────────────────────────────────────────────────
+  function paintIcon() {
+    const icon = iconOf(current);
+    $("icon-show").textContent = icon;
+    $("icon-btn").classList.toggle("empty", !icon);
+    $("icon-btn").hidden = Boolean(current?.day);
+    $("icon-btn").title = icon ? "Change the icon" : "Add an icon";
+  }
+  let emojiFor = null;   // the note or folder the picker is for
+  function openEmoji(id, from) {
+    emojiFor = id;
+    const pop = $("emoji-pop");
+    const now = id === current?.id ? iconOf(current) : iconOf(byId(id));
+    $("emoji-grid").innerHTML = EMOJI.map(e => `<button type="button" data-emoji="${e}" aria-pressed="${e === now}" aria-label="${e}">${e}</button>`).join("");
+    $("emoji-any").value = "";
+    $("emoji-remove").hidden = !now;
+    pop.hidden = false;
+    const r = from.getBoundingClientRect(), page = document.body.getBoundingClientRect();
+    pop.style.left = `${Math.max(8, Math.min(r.left - page.left, page.width - pop.offsetWidth - 8))}px`;
+    pop.style.top = `${r.bottom - page.top + 6}px`;
+  }
+  function closeEmoji() { $("emoji-pop").hidden = true; emojiFor = null; }
+  async function setIcon(id, icon) {
+    closeEmoji();
+    if (current?.id === id) {
+      const next = { ...(current.style || {}), icon: icon || undefined };
+      if (!icon) delete next.icon;
+      commitStyle(Object.keys(next).length ? next : null);
+      paintIcon();
+      renderList();
+      return;
+    }
+    const n = byId(id);
+    if (!n) return;
+    const next = { ...(n.style || {}) };
+    if (icon) next.icon = icon; else delete next.icon;
+    try { await patch([id], { style: Object.keys(next).length ? next : null }); }
+    catch (err) { if (err.code === "42703") styleMissing(); else toast(`Couldn’t change the icon: ${err.message}`, { err: true }); return; }
+    renderList();
+  }
+  // The first character as you see it (an emoji may be several code points).
+  const firstGlyph = (t) => {
+    const v = String(t || "").trim();
+    if (!v) return "";
+    if (typeof Intl !== "undefined" && Intl.Segmenter) return [...new Intl.Segmenter().segment(v)][0]?.segment || "";
+    return [...v][0];
+  };
+  $("icon-btn").addEventListener("click", () => { if (current) ($("emoji-pop").hidden ? openEmoji(current.id, $("icon-btn")) : closeEmoji()); });
+  $("emoji-grid").addEventListener("click", (e) => { const b = e.target.closest("[data-emoji]"); if (b && emojiFor) setIcon(emojiFor, b.dataset.emoji); });
+  $("emoji-any").addEventListener("input", () => { const g = firstGlyph($("emoji-any").value); if (g && emojiFor && /\p{Extended_Pictographic}|\p{Emoji_Presentation}/u.test(g)) setIcon(emojiFor, g); });
+  $("emoji-remove").addEventListener("click", () => { if (emojiFor) setIcon(emojiFor, null); });
+  document.addEventListener("pointerdown", (e) => { if (!$("emoji-pop").hidden && !e.target.closest("#emoji-pop, #icon-btn, #folder-menu")) closeEmoji(); });
+
   // ─── Favourite colours ────────────────────────────────────────────
   // Kept as hex. One tapped fills the colour box last used.
   const FIELD_LABEL = { cardHex: "page colour", ink: "text colour", bdA: "backdrop", bdB: "backdrop’s second colour" };
@@ -814,7 +1090,7 @@ export async function mount(ctx) {
     }
   }
   function useFavourite(h) {
-    const on = current?.style || lookFor(spaceOf(current)) || {};
+    const on = (ownLook(current?.style) ? current.style : lookFor(spaceOf(current))) || {};
     if (favField === "cardHex") setStyle({ card: "custom", cardHex: h });
     else if (favField === "ink") setStyle({ ink: h });
     else if (favField === "bdA") setStyle({ backdrop: "custom", bdA: h, bdB: on.backdrop === "custom" ? on.bdB : null, bdAngle: on.bdAngle || "180" });
@@ -833,7 +1109,7 @@ export async function mount(ctx) {
   $("style-pop").addEventListener("click", async (e) => {
     const star = e.target.closest(".star");
     if (star) {
-      const on = current?.style || lookFor(spaceOf(current)) || {};
+      const on = (ownLook(current?.style) ? current.style : lookFor(spaceOf(current))) || {};
       const v = hex(on[star.dataset.fav]) || hex($({ cardHex: "card-hex", ink: "ink-hex", bdA: "bd-hex-a", bdB: "bd-hex-b" }[star.dataset.fav]).value);
       if (!v) { toast("Choose a colour first, then ☆ keeps it."); return; }
       const list = favourites();
@@ -847,11 +1123,11 @@ export async function mount(ctx) {
     const sp = spaceOf(current), mode = modeName(), label = SPACES.find(x => x.id === sp)?.label || "this space";
     const looks = { ...(notesState.looks || {}) };
     if (look === "set") {
-      looks[sp] = { ...(looks[sp] || {}), [mode]: current.style };
+      looks[sp] = { ...(looks[sp] || {}), [mode]: lookOnly(current.style) };
       await saveState({ looks });
-      commitStyle(null);   // this note now follows the space's look
+      commitStyle(iconOf(current) ? { icon: iconOf(current) } : null);   // this note now follows the space's look
       toast(`${label}’s ${mode}-mode look is set.`);
-    } else if (look === "follow") commitStyle(null);
+    } else if (look === "follow") commitStyle(iconOf(current) ? { icon: iconOf(current) } : null);
     else {
       const left = { ...(looks[sp] || {}) };
       delete left[mode];
@@ -1104,7 +1380,8 @@ export async function mount(ctx) {
   const nameOf = (n) => isFolder(n) ? folderName(n) : naming(n).name || "Untitled";
   const byName = (a, b) => nameOf(a).localeCompare(nameOf(b), "en-GB", { sensitivity: "base", numeric: true });
   function renderTabs() {
-    $("tabs").innerHTML = SPACES.map(x => `<button type="button" class="tab" data-space="${x.id}" aria-pressed="${x.id === space}">${esc(x.label)}</button>`).join("");
+    $("tabs").innerHTML = SPACES.map(x => `<button type="button" class="tab" role="menuitemradio" data-space="${x.id}" aria-pressed="${x.id === space}" aria-checked="${x.id === space}">${esc(x.label)}</button>`).join("");
+    $("space-name").textContent = SPACES.find(x => x.id === space)?.label || "my space";
   }
   function renderList() {
     if (!SPACES.some(x => x.id === space)) goTo("my", null);
@@ -1118,7 +1395,7 @@ export async function mount(ctx) {
     const pinned = notes.filter(n => n.pinned && !n.deleted_at && !n.day && n.space === space).sort(byName);
     if (pinned.length) {
       rows.push(`<div class="tree-head" data-drop="pin">Pinned</div>`);
-      for (const n of pinned) rows.push(`<div class="node pinned${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="${isFolder(n) ? "folder" : "page"}" data-pinned><span class="gap"></span><span class="ic" aria-hidden="true">${isFolder(n) ? FOLDER_ICON : PIN_ICON}</span><span class="label">${esc(nameOf(n))}</span></div>`);
+      for (const n of pinned) rows.push(`<div class="node pinned${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="${isFolder(n) ? "folder" : "page"}" data-pinned><span class="gap"></span>${iconOf(n) ? `<span class="ic emoji" aria-hidden="true">${esc(iconOf(n))}</span>` : `<span class="ic" aria-hidden="true">${isFolder(n) ? FOLDER_ICON : PIN_ICON}</span>`}<span class="label">${esc(nameOf(n))}</span></div>`);
       rows.push(`<div class="tree-line" data-drop="root" title="The top of ${esc(label)}" aria-hidden="true"></div>`);
     }
     const walk = (parent, depth) => {
@@ -1127,12 +1404,12 @@ export async function mount(ctx) {
       for (const n of here) {
         if (isFolder(n)) {
           const open = opened.has(n.id);
-          rows.push(`<div class="node${folder === n.id && !current ? " sel" : ""}" role="treeitem" tabindex="-1" aria-expanded="${open}" data-id="${n.id}" data-kind="folder" style="--depth:${depth}">${CHEV}<span class="ic" aria-hidden="true">${FOLDER_ICON}</span><span class="label">${esc(folderName(n))}</span><button type="button" class="more" data-more aria-label="Options for ${esc(folderName(n))}" tabindex="-1">${DOTS}</button></div>`);
+          rows.push(`<div class="node${folder === n.id && !current ? " sel" : ""}" role="treeitem" tabindex="-1" aria-expanded="${open}" data-id="${n.id}" data-kind="folder" style="--depth:${depth}">${CHEV}${iconOf(n) ? `<span class="ic emoji" aria-hidden="true">${esc(iconOf(n))}</span>` : `<span class="ic" aria-hidden="true">${FOLDER_ICON}</span>`}<span class="label">${esc(folderName(n))}</span><button type="button" class="more" data-more aria-label="Options for ${esc(folderName(n))}" tabindex="-1">${DOTS}</button></div>`);
           if (open) walk(n.id, depth + 1);
         } else {
           const { name } = naming(n);
           const only = n.space === "joint" && !n.household_id ? ` title="Only you can see this: you haven’t joined a household"` : "";
-          rows.push(`<div class="node${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="page" style="--depth:${depth}"${only}><span class="gap"></span><span class="ic" aria-hidden="true">${PAGE_ICON}</span><span class="label${name ? "" : " untitled"}">${esc(name || "Untitled")}</span></div>`);
+          rows.push(`<div class="node${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="page" style="--depth:${depth}"${only}><span class="gap"></span>${iconOf(n) ? `<span class="ic emoji" aria-hidden="true">${esc(iconOf(n))}</span>` : `<span class="ic" aria-hidden="true">${PAGE_ICON}</span>`}<span class="label${name ? "" : " untitled"}">${esc(name || "Untitled")}</span></div>`);
         }
       }
     };
@@ -1178,6 +1455,7 @@ export async function mount(ctx) {
     bullets: { run: () => chain().toggleBulletList().run(), on: () => editor.isActive("bulletList") },
     numbers: { run: () => chain().toggleOrderedList().run(), on: () => editor.isActive("orderedList") },
     mic: { run: () => toggleMic() },
+    color: { run: () => ($("block-pop").hidden ? openBlockColours() : closeBlockColours()) },
     undo: { run: () => chain().undo().run(), can: () => editor.can().undo() },
     redo: { run: () => chain().redo().run(), can: () => editor.can().redo() },
   };
@@ -1227,7 +1505,7 @@ export async function mount(ctx) {
   let slashItems = [], slashPick = 0, slashRun = null;
   function drawSlash() {
     if (!slashItems.length) { slash.hidden = true; return; }
-    slash.innerHTML = slashItems.map((b, i) => `<button type="button" role="option" data-i="${i}" aria-selected="${i === slashPick}"><span class="ic" aria-hidden="true">${esc(b.ic)}</span>${esc(b.label)}</button>`).join("");
+    slash.innerHTML = slashItems.map((b, i) => `<button type="button" role="option" data-i="${i}" aria-selected="${i === slashPick}"><span class="ic" aria-hidden="true"${b.tint ? ` style="color:${BLOCK_COLOURS.find(x => x[0] === b.tint)[1]}"` : ""}>${esc(b.ic)}</span>${esc(b.label)}</button>`).join("");
     slash.hidden = false;
     slash.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
@@ -1293,10 +1571,20 @@ export async function mount(ctx) {
     if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); focusNote("start"); }
   });
 
+  // The space picker opens and shuts; choosing a space shuts it.
+  const spaceMenu = root.querySelector(".space-menu");
+  function showSpaces(on) {
+    spaceMenu.hidden = !on;
+    $("space-btn").setAttribute("aria-expanded", String(on));
+  }
+  $("space-btn").addEventListener("click", () => showSpaces(spaceMenu.hidden));
+  $("space-edit").addEventListener("click", () => { showSpaces(false); openSpaces(); });
+  document.addEventListener("pointerdown", (e) => { if (!spaceMenu.hidden && !drag?.active && !e.target.closest(".space-pick")) showSpaces(false); });
   $("tabs").addEventListener("click", (e) => {
     const t = e.target.closest(".tab");
     if (!t) return;
     goTo(t.dataset.space, readJSON(FOLDER_KEY, {})[t.dataset.space]);
+    showSpaces(false);
     renderList();
   });
   $("tree").addEventListener("click", (e) => {
@@ -1364,6 +1652,7 @@ export async function mount(ctx) {
     if (act === "note") { goTo(space, id); setOpen(id, true); newNote(); }
     else if (act === "folder") newFolder(id);
     else if (act === "pin") togglePin(id);
+    else if (act === "icon") openEmoji(id, $("tree").querySelector(`.node[data-id="${id}"]:not([data-pinned])`) || $("tree"));
     else if (act === "rename") renameFolder(id);
     else if (act === "move") openMove(id);
     else deleteFolder(id);
@@ -1385,8 +1674,9 @@ export async function mount(ctx) {
   // folder puts it inside. Also the space's name (the top), "Pinned" (pins
   // it) and a space's tab.
   function dropTarget(x, y) {
-    const el = atPoint(x, y)?.closest?.(".node, .tree-head, .tree-line, .tab");
+    const el = atPoint(x, y)?.closest?.(".node, .tree-head, .tree-line, .tab, .space-btn");
     if (!el) return null;
+    if (el.classList.contains("space-btn")) return { el, mode: "picker" };
     if (el.classList.contains("tab")) return { el, mode: "space" };
     if (el.classList.contains("tree-line")) return { el, mode: "top" };
     if (el.classList.contains("tree-head")) return { el, mode: el.dataset.drop === "pin" ? "pin" : "top" };
@@ -1457,6 +1747,7 @@ export async function mount(ctx) {
     // Held over a shut folder, it opens; over another space's tab, that space shows.
     drag.hold = setTimeout(() => {
       if (!drag?.active || drag.over?.el !== t.el) return;
+      if (t.mode === "picker") { showSpaces(true); return; }
       if (t.mode === "into" && !opened.has(t.el.dataset.id)) { setOpen(t.el.dataset.id, true); renderList(); }
       else if (t.mode === "space" && t.el.dataset.space !== space) { goTo(t.el.dataset.space, null); drag.over = null; renderList(); }
     }, 650);
@@ -1472,6 +1763,8 @@ export async function mount(ctx) {
     setTimeout(() => { suppressClick = false; }, 0);
     const item = byId(id);
     if (!t || !item) return;
+    showSpaces(false);
+    if (t.mode === "picker") return;
     if (t.mode === "pin") { togglePin(id, true); return; }
     if (t.mode === "before" || t.mode === "after") {
       const target = byId(t.el.dataset.id);
@@ -1616,7 +1909,9 @@ export async function mount(ctx) {
     if (mod && (e.key === "n" || e.key === "N")) { e.preventDefault(); newNote(); return; }
     if (mod && (e.key === "s" || e.key === "S")) { e.preventDefault(); toggleSide(); return; }
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
-    if (e.key === "Escape" && (drag || !$("folder-menu").hidden || !$("style-pop").hidden)) { e.preventDefault(); endDrag(); closeFolderMenu(); closeStyle(); return; }
+    if (e.key === "Escape" && (drag || !$("folder-menu").hidden || !$("style-pop").hidden || !spaceMenu.hidden || !$("emoji-pop").hidden || !$("note-menu").hidden || !$("tpl-pop").hidden || !$("block-pop").hidden)) {
+      e.preventDefault(); endDrag(); closeFolderMenu(); closeStyle(); showSpaces(false); closeEmoji(); closeNoteMenu(); closeTemplates(); closeBlockColours(); return;
+    }
     if ((e.key === "n" || e.key === "N") && !typing(e)) { e.preventDefault(); newNote(); }
     if ((e.key === "d" || e.key === "D") && !typing(e)) { e.preventDefault(); openDay(today()); }
     // Escape out of a note goes back to the list on a phone (not lifeOS's wheel).

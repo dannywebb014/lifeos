@@ -6,6 +6,12 @@
         <button type="button" class="icon-btn" id="spaces-btn" aria-label="Spaces" title="Spaces: rename or add">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
         </button>
+        <button type="button" class="icon-btn" id="tpl-btn" aria-label="New from a template" title="New from a template" aria-haspopup="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="import-btn" aria-label="Import notes" title="Import notes (Markdown, or a Craft export)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
+        </button>
         <button type="button" class="icon-btn" id="new-folder" aria-label="New folder" title="New folder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
         </button>
@@ -17,7 +23,16 @@
         </button>
       </header>
       <div id="lists">
-        <nav class="tabs" id="tabs" aria-label="Spaces"></nav>
+        <div class="space-pick">
+          <button type="button" class="space-btn" id="space-btn" aria-haspopup="true" aria-expanded="false" title="Choose a space">
+            <span class="space-name" id="space-name"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="space-menu" role="menu" aria-label="Spaces" hidden>
+            <div id="tabs"></div>
+            <button type="button" class="space-edit" id="space-edit">Edit spaces…</button>
+          </div>
+        </div>
         <div id="notice"></div>
         <div class="tree" id="tree" role="tree" aria-label="Notes and folders"></div>
       </div>
@@ -50,6 +65,9 @@
           <button type="button" class="icon-btn" id="move" aria-label="Move to a folder or space" title="Move">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M10 13h6M13.5 10.5 16 13l-2.5 2.5"/></svg>
           </button>
+          <button type="button" class="icon-btn" id="note-more" aria-label="More" title="More" aria-haspopup="true">
+            <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+          </button>
           <button type="button" class="icon-btn" id="delete" aria-label="Move to the bin" title="Move to the bin">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
           </button>
@@ -68,7 +86,10 @@
           </label>
           <button type="button" class="small-btn" id="day-today">Today</button>
         </div>
-        <textarea id="title" class="title" rows="1" placeholder="Untitled" aria-label="Title" autocapitalize="sentences"></textarea>
+        <div class="title-row">
+          <button type="button" class="icon-pick" id="icon-btn" aria-label="Choose an icon" title="Icon"><span id="icon-show"></span></button>
+          <textarea id="title" class="title" rows="1" placeholder="Untitled" aria-label="Title" autocapitalize="sentences"></textarea>
+        </div>
         <div class="card">
           <div class="toolbar" id="toolbar" role="toolbar" aria-label="Formatting">
             <button type="button" data-cmd="h1" aria-label="Heading" title="Heading">H1</button>
@@ -84,6 +105,9 @@
             </button>
             <button type="button" data-cmd="numbers" aria-label="Numbered list" title="Numbered list">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 6h10M10 12h10M10 18h10"/><path d="M4 5h1.5v4M4 9h3M4 14.5c.5-.7 2.8-.9 2.8.6 0 1.2-2.8 2-2.8 2.9h3" stroke-width="1.5"/></svg>
+            </button>
+            <button type="button" data-cmd="color" id="color-btn" aria-label="Block colour" title="Block colour" aria-haspopup="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 11-8-8-8.5 8.5a2.1 2.1 0 0 0 0 3L7 19a2.1 2.1 0 0 0 3 0z"/><path d="M5 2l5 5M2 13h15M22 20a2 2 0 1 1-4 0c0-1.6 2-3 2-3s2 1.4 2 3z"/></svg>
             </button>
             <button type="button" data-cmd="mic" id="mic" aria-label="Speak" title="Speak" aria-pressed="false" hidden>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
@@ -110,12 +134,46 @@
   <div class="menu" id="folder-menu" role="menu" hidden>
     <button type="button" role="menuitem" data-act="note">New note here</button>
     <button type="button" role="menuitem" data-act="folder">New folder inside</button>
+    <button type="button" role="menuitem" data-act="icon">Icon…</button>
     <button type="button" role="menuitem" data-act="pin">Pin to the top</button>
     <button type="button" role="menuitem" data-act="rename">Rename</button>
     <button type="button" role="menuitem" data-act="move">Move…</button>
     <button type="button" role="menuitem" data-act="delete" class="danger">Delete folder</button>
   </div>
   <div class="ghost-drag" id="ghost" aria-hidden="true" hidden></div>
+  <div class="menu" id="note-menu" role="menu" hidden>
+    <button type="button" role="menuitem" data-act="icon">Icon…</button>
+    <button type="button" role="menuitem" data-act="template">Save as a template…</button>
+    <button type="button" role="menuitem" data-act="markdown">Download as Markdown</button>
+  </div>
+  <div class="menu tpl-menu" id="tpl-pop" role="menu" hidden>
+    <div id="tpl-list"></div>
+    <label class="tpl-daily">Daily notes start from
+      <select id="tpl-daily"></select>
+    </label>
+    <p class="tpl-hint">Save any note as a template from its ⋯ menu.</p>
+  </div>
+  <div class="block-pop" id="block-pop" role="dialog" aria-label="Block colour" hidden></div>
+  <dialog id="import-dlg" aria-labelledby="import-title">
+    <div class="sheet">
+      <h2 id="import-title">Import notes</h2>
+      <p class="note">Markdown files (.md or .txt), or a zip of them, such as a Craft export (in Craft: Export → Markdown). Folders inside become folders here.</p>
+      <p class="note" id="import-where"></p>
+      <div class="row import-pick">
+        <label class="primary file-btn">Choose files<input type="file" id="import-files" multiple accept=".md,.markdown,.txt,.zip,text/markdown,text/plain,application/zip"></label>
+        <label class="ghost file-btn" id="import-folder-btn">Choose a folder<input type="file" id="import-folder" webkitdirectory multiple></label>
+      </div>
+      <p class="note" id="import-status" role="status" aria-live="polite"></p>
+      <div class="row"><button type="button" class="ghost" id="import-close">Close</button></div>
+    </div>
+  </dialog>
+  <div class="emoji-pop" id="emoji-pop" role="dialog" aria-label="Choose an icon" hidden>
+    <div class="emoji-grid" id="emoji-grid"></div>
+    <div class="hex-row">
+      <input type="text" id="emoji-any" class="emoji-any" maxlength="16" placeholder="Or type any emoji" aria-label="Any emoji">
+      <button type="button" class="chip-btn" id="emoji-remove">No icon</button>
+    </div>
+  </div>
   <div class="style-pop" id="style-pop" role="dialog" aria-label="Page style" hidden>
     <p class="style-head fav-head">Favourites <span class="fav-for" id="fav-for"></span><button type="button" class="mini-link" id="fav-edit" hidden>Edit</button></p>
     <div class="favs" id="favs"></div>
