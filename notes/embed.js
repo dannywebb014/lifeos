@@ -25,7 +25,14 @@ const SAVE_AFTER = 1000;
 const BIN_DAYS = 30;
 const UNSAVED = "notes.unsaved";
 const SPACE_KEY = "notes.space";
-const FOLDER_KEY = "notes.folder";   // the folder last open in each space
+const FOLDER_KEY = "notes.folder";   // the folder last chosen in each space
+const OPEN_KEY = "notes.open";       // folders shown open in the sidebar
+const SIDE_KEY = "notes.sideWidth";  // the sidebar's width, dragged by its edge
+const SIDE_WIDTH = 272;
+const LONG_PRESS = 350;              // ms held on a touch screen before dragging starts
+const CHEV = `<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
+const PAGE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>`;
+const DOTS = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>`;
 const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
 
 // The / menu: every kind of block, with words it can be found by.
@@ -72,6 +79,12 @@ export async function mount(ctx) {
   const writeJSON = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage full or blocked */ } };
   let space = SPACES.some(s => s.id === readJSON(SPACE_KEY)) ? readJSON(SPACE_KEY) : "my";
   let folder = readJSON(FOLDER_KEY, {})[space] || null;   // the folder shown, or null for the top of the space
+  const opened = new Set(readJSON(OPEN_KEY, []));
+  function setOpen(id, on) {
+    if (!id) return;
+    if (on) opened.add(id); else opened.delete(id);
+    writeJSON(OPEN_KEY, [...opened]);
+  }
   function goTo(spaceId, folderId) {
     space = spaceId; folder = folderId || null;
     writeJSON(SPACE_KEY, space);
@@ -273,8 +286,9 @@ export async function mount(ctx) {
     const parent = liveFolder(row.parent_id ?? row.parent)?.id ?? null;
     current = { id: row.id, isNew: Boolean(row.isNew), base: row.updated_at || null, space: row.space, parent };
     dirty = false;
-    // The list behind it shows where the note lives.
+    // The sidebar shows where the note lives, its folders open.
     goTo(row.space, parent);
+    for (const f of pathTo(parent)) setOpen(f.id, true);
     $("title").value = row.title || "";
     makeEditor(row.body);
     labelBack();
@@ -412,15 +426,16 @@ export async function mount(ctx) {
   $("name-cancel").addEventListener("click", () => finishName(null));
   $("name-dlg").addEventListener("close", () => finishName(null));
 
-  async function newFolder() {
+  async function newFolder(parent = folder) {
     if (!ready || !folders) return;
     const name = await askName({ heading: "New folder", ok: "Make folder" });
     if (!name) return;
     const { data, error } = await supabase.from("notes")
-      .insert({ id: crypto.randomUUID(), kind: "folder", title: name, space, parent_id: folder, household_id: await householdFor(space) })
+      .insert({ id: crypto.randomUUID(), kind: "folder", title: name, space, parent_id: parent, household_id: await householdFor(space) })
       .select(listColumns).single();
     if (error) { toast(`Couldn’t make the folder: ${error.message}`, { err: true }); console.error("notes.: new folder failed:", error.message); return; }
     mergeRow(data);
+    setOpen(parent, true);
     renderList();
   }
   async function renameFolder(id) {
@@ -503,6 +518,7 @@ export async function mount(ctx) {
       labelBack();
     } else if (isFolder(item)) goTo(toSpace, id);
     else goTo(toSpace, toParent);
+    setOpen(toParent, true);
     renderList(); renderBin();
     const f = liveFolder(toParent);
     toast(`Moved to ${f ? folderName(f) : SPACES.find(x => x.id === toSpace).label}.`);
@@ -524,30 +540,38 @@ export async function mount(ctx) {
     return n.title ? { name: n.title, rest: lines.join(" ") } : { name: lines[0] || "", rest: lines.slice(1).join(" ") };
   }
 
+  // The sidebar: this space as a tree. Folders first, then notes, each A to Z.
+  const nameOf = (n) => isFolder(n) ? folderName(n) : naming(n).name || "Untitled";
+  const byName = (a, b) => nameOf(a).localeCompare(nameOf(b), "en-GB", { sensitivity: "base", numeric: true });
   function renderList() {
     for (const t of $("tabs").querySelectorAll(".tab")) t.setAttribute("aria-pressed", String(t.dataset.space === space));
     $("new-folder").hidden = !ready || !folders;
-    if (!ready) { $("list").innerHTML = ""; $("crumbs").innerHTML = ""; $("folder-tools").hidden = true; return; }
+    if (!ready) { $("tree").innerHTML = ""; return; }
     if (folder && liveFolder(folder)?.space !== space) folder = null;
-    const label = SPACES.find(s => s.id === space).label;
-    const path = pathTo(folder);
-    $("crumbs").innerHTML = path.length ? [`<button type="button" data-folder="">${esc(label)}</button>`,
-      ...path.slice(0, -1).map(f => `<button type="button" data-folder="${f.id}">${esc(folderName(f))}</button>`),
-      `<span class="here">${esc(folderName(path.at(-1)))}</span>`].join(`<span aria-hidden="true">/</span>`) : "";
-    $("folder-tools").hidden = !folder;
-    const here = notes.filter(n => n.space === space && !n.deleted_at && placeOf(n) === folder);
-    const inFolders = here.filter(isFolder).sort((a, b) => folderName(a).localeCompare(folderName(b)));
-    const pages = here.filter(n => !isFolder(n)).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-    const count = (f) => { const k = notes.filter(n => n.parent_id === f.id && !n.deleted_at).length; return k ? `${k} inside` : "empty"; };
-    const folderItems = inFolders.map(f => `<button type="button" class="item folder" data-folder="${f.id}">
-        <span class="ic" aria-hidden="true">${FOLDER_ICON}</span><span class="name">${esc(folderName(f))}</span><span class="sub">${count(f)}</span></button>`).join("");
-    $("list").innerHTML = here.length ? folderItems + pages.map(n => {
-      const { name, rest } = naming(n);
-      const shared = n.space === "joint" && !n.household_id ? " · only you" : "";
-      return `<button type="button" class="item${current?.id === n.id ? " sel" : ""}" data-id="${n.id}">
-        <span class="name${name ? "" : " untitled"}">${esc(name || "Untitled")}</span>
-        <span class="sub"><span class="when">${esc(when(n.updated_at))}${shared}</span>${rest ? ` · ${esc(rest.slice(0, 140))}` : ""}</span></button>`;
-    }).join("") : `<p class="empty">${folder ? "This folder is empty. Tap + to add a note." : `Nothing in ${esc(label)} yet. Tap + to start a note.`}</p>`;
+    const label = SPACES.find(x => x.id === space).label;
+    const rows = [`<div class="tree-head" data-drop="root" title="The top of ${esc(label)}">${esc(label)}</div>`];
+    const walk = (parent, depth) => {
+      const here = notes.filter(n => n.space === space && !n.deleted_at && placeOf(n) === parent);
+      if (!here.length && parent) rows.push(`<p class="tree-empty" style="--depth:${depth}">Empty</p>`);
+      for (const n of [...here.filter(isFolder).sort(byName), ...here.filter(n => !isFolder(n)).sort(byName)]) {
+        if (isFolder(n)) {
+          const open = opened.has(n.id);
+          rows.push(`<div class="node${folder === n.id && !current ? " sel" : ""}" role="treeitem" tabindex="-1" aria-expanded="${open}" data-id="${n.id}" data-kind="folder" style="--depth:${depth}">${CHEV}<span class="ic" aria-hidden="true">${FOLDER_ICON}</span><span class="label">${esc(folderName(n))}</span><button type="button" class="more" data-more aria-label="Options for ${esc(folderName(n))}" tabindex="-1">${DOTS}</button></div>`);
+          if (open) walk(n.id, depth + 1);
+        } else {
+          const { name } = naming(n);
+          const only = n.space === "joint" && !n.household_id ? ` title="Only you can see this: you haven’t joined a household"` : "";
+          rows.push(`<div class="node${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="page" style="--depth:${depth}"${only}><span class="gap"></span><span class="ic" aria-hidden="true">${PAGE_ICON}</span><span class="label${name ? "" : " untitled"}">${esc(name || "Untitled")}</span></div>`);
+        }
+      }
+    };
+    walk(null, 0);
+    if (rows.length === 1) rows.push(`<p class="tree-empty">Nothing in ${esc(label)} yet. Tap + to start a note.</p>`);
+    $("tree").innerHTML = rows.join("");
+    // One row takes Tab; the arrow keys move between them.
+    const first = $("tree").querySelector(".node.sel") || $("tree").querySelector(".node");
+    if (first) first.tabIndex = 0;
+    if (drag?.active) markDrag();
   }
 
   function renderBin() {
@@ -702,24 +726,194 @@ export async function mount(ctx) {
     goTo(t.dataset.space, readJSON(FOLDER_KEY, {})[t.dataset.space]);
     renderList();
   });
-  $("list").addEventListener("click", (e) => {
-    const item = e.target.closest(".item");
-    if (!item) return;
-    if (item.dataset.folder) { goTo(space, item.dataset.folder); renderList(); }
-    else openNote(item.dataset.id);
+  $("tree").addEventListener("click", (e) => {
+    if (suppressClick) return;
+    if (e.target.closest(".tree-head")) { goTo(space, null); renderList(); return; }
+    const node = e.target.closest(".node");
+    if (!node) return;
+    const id = node.dataset.id;
+    if (e.target.closest("[data-more]")) { openFolderMenu(id, e.target.closest("[data-more]")); return; }
+    if (node.dataset.kind === "folder") { setOpen(id, !opened.has(id)); goTo(space, id); renderList(); focusRow(id); }
+    else openNote(id);
   });
-  $("crumbs").addEventListener("click", (e) => {
-    const b = e.target.closest("button[data-folder]");
-    if (b) { goTo(space, b.dataset.folder); renderList(); }
+  $("tree").addEventListener("keydown", (e) => {
+    const node = e.target.closest(".node");
+    if (!node || e.target.closest("[data-more]")) return;
+    const all = [...$("tree").querySelectorAll(".node")];
+    const i = all.indexOf(node), id = node.dataset.id, folderRow = node.dataset.kind === "folder";
+    const go = (j) => { const n = all[Math.max(0, Math.min(all.length - 1, j))]; if (n) { node.tabIndex = -1; n.tabIndex = 0; n.focus(); } };
+    if (e.key === "ArrowDown") go(i + 1);
+    else if (e.key === "ArrowUp") go(i - 1);
+    else if (e.key === "ArrowRight" && folderRow && !opened.has(id)) { setOpen(id, true); renderList(); focusRow(id); }
+    else if (e.key === "ArrowLeft" && folderRow && opened.has(id)) { setOpen(id, false); renderList(); focusRow(id); }
+    else if (e.key === "Enter" || e.key === " ") node.click();
+    else return;
+    e.preventDefault();
   });
-  $("new-folder").addEventListener("click", newFolder);
-  $("folder-tools").addEventListener("click", (e) => {
+  function focusRow(id) {
+    const n = $("tree").querySelector(`.node[data-id="${id}"]`);
+    if (!n) return;
+    for (const x of $("tree").querySelectorAll(".node")) x.tabIndex = -1;
+    n.tabIndex = 0;
+    n.focus({ preventScroll: true });
+  }
+  $("new-folder").addEventListener("click", () => newFolder());
+
+  // ─── A folder's menu (its ⋯) ──────────────────────────────────────
+  function openFolderMenu(id, from) {
+    closeFolderMenu();
+    const m = $("folder-menu");
+    m.dataset.id = id;
+    const r = from.getBoundingClientRect(), page = document.body.getBoundingClientRect();
+    m.hidden = false;
+    m.style.left = `${Math.max(8, Math.min(r.right - page.left - m.offsetWidth, page.width - m.offsetWidth - 8))}px`;
+    m.style.top = `${r.bottom - page.top + 4}px`;
+    from.closest(".node")?.classList.add("menu-open");
+    m.querySelector("button").focus();
+  }
+  function closeFolderMenu() {
+    $("folder-menu").hidden = true;
+    for (const n of $("tree").querySelectorAll(".menu-open")) n.classList.remove("menu-open");
+  }
+  $("folder-menu").addEventListener("click", async (e) => {
     const act = e.target.closest("button[data-act]")?.dataset.act;
-    if (!folder || !act) return;
-    if (act === "rename") renameFolder(folder);
-    else if (act === "move") openMove(folder);
-    else deleteFolder(folder);
+    const id = $("folder-menu").dataset.id;
+    if (!act) return;
+    closeFolderMenu();
+    if (act === "note") { goTo(space, id); setOpen(id, true); newNote(); }
+    else if (act === "folder") newFolder(id);
+    else if (act === "rename") renameFolder(id);
+    else if (act === "move") openMove(id);
+    else deleteFolder(id);
   });
+  document.addEventListener("pointerdown", (e) => {
+    if (!$("folder-menu").hidden && !e.target.closest("#folder-menu, [data-more]")) closeFolderMenu();
+  });
+
+  // ─── Dragging into folders ────────────────────────────────────────
+  // A row dragged onto a folder goes in it; onto the space's name, to its
+  // top; onto another space's tab, to that space (held there, the tab opens).
+  // With a mouse it starts after a few pixels; on a touch screen after a
+  // press held still, so a swipe still scrolls.
+  let drag = null, suppressClick = false;
+  const tree = $("tree"), ghost = $("ghost");
+  const atPoint = (x, y) => (root.elementFromPoint ? root.elementFromPoint(x, y) : null);
+  function dropTarget(x, y) {
+    const t = atPoint(x, y)?.closest?.('.node[data-kind="folder"], .tree-head, .tab');
+    if (!t) return null;
+    if (t.classList.contains("node") && drag.blocked.has(t.dataset.id)) return null;
+    return t;
+  }
+  function markDrag() {
+    tree.querySelector(`.node[data-id="${drag.id}"]`)?.classList.add("dragging");
+    if (drag.over?.dataset.id) drag.over = tree.querySelector(`.node[data-id="${drag.over.dataset.id}"]`) || null;
+    drag.over?.classList.add("drop");
+  }
+  function startDrag() {
+    if (!drag) return;
+    const item = byId(drag.id);
+    if (!item) { drag = null; return; }
+    drag.active = true;
+    drag.blocked = new Set(isFolder(item) ? [drag.id, ...descendants(drag.id)] : []);
+    try { tree.setPointerCapture(drag.pointerId); } catch { /* pointer gone */ }
+    ghost.textContent = nameOf(item);
+    ghost.hidden = false;
+    moveGhost(drag.x, drag.y);
+    closeFolderMenu();
+    markDrag();
+  }
+  function moveGhost(x, y) { ghost.style.left = `${x}px`; ghost.style.top = `${y}px`; }
+  function endDrag() {
+    if (!drag) return;
+    clearTimeout(drag.timer); clearTimeout(drag.hold);
+    try { tree.releasePointerCapture(drag.pointerId); } catch { /* not held */ }
+    for (const n of root.querySelectorAll(".drop, .dragging")) n.classList.remove("drop", "dragging");
+    ghost.hidden = true;
+    drag = null;
+  }
+  tree.addEventListener("pointerdown", (e) => {
+    const node = e.target.closest(".node");
+    if (!node || !ready || e.button !== 0 || e.target.closest("[data-more]")) return;
+    drag = { id: node.dataset.id, x: e.clientX, y: e.clientY, pointerId: e.pointerId, touch: e.pointerType !== "mouse", active: false, over: null };
+    if (drag.touch) drag.timer = setTimeout(startDrag, LONG_PRESS);
+  });
+  tree.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const moved = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
+    if (!drag.active) {
+      if (drag.touch) { if (moved > 8) endDrag(); return; }
+      if (moved < 5) return;
+      startDrag();
+      if (!drag) return;
+    }
+    moveGhost(e.clientX, e.clientY);
+    const t = dropTarget(e.clientX, e.clientY);
+    if (t === drag.over) return;
+    drag.over?.classList.remove("drop");
+    clearTimeout(drag.hold);
+    drag.over = t;
+    if (!t) return;
+    t.classList.add("drop");
+    // Held over a shut folder, it opens; over another space's tab, that space shows.
+    drag.hold = setTimeout(() => {
+      if (!drag?.active || drag.over !== t) return;
+      if (t.classList.contains("node") && !opened.has(t.dataset.id)) { setOpen(t.dataset.id, true); renderList(); }
+      else if (t.classList.contains("tab") && t.dataset.space !== space) { goTo(t.dataset.space, null); drag.over = null; renderList(); }
+    }, 650);
+  });
+  tree.addEventListener("pointerup", (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const { active, id } = drag;
+    const t = active ? dropTarget(e.clientX, e.clientY) : null;
+    endDrag();
+    if (!active) return;
+    // The release isn't a click on the row it started on.
+    suppressClick = true;
+    setTimeout(() => { suppressClick = false; }, 0);
+    if (!t) return;
+    const item = byId(id);
+    const toSpace = t.classList.contains("tab") ? t.dataset.space : space;
+    const toParent = t.classList.contains("node") ? t.dataset.id : null;
+    if (item && (item.space !== toSpace || (placeOf(item) || null) !== toParent)) moveItem(id, toSpace, toParent);
+  });
+  tree.addEventListener("pointercancel", endDrag);
+  // Once a drag has started, the finger moves the row, not the page.
+  tree.addEventListener("touchmove", (e) => { if (drag?.active) e.preventDefault(); }, { passive: false });
+  tree.addEventListener("contextmenu", (e) => { if (drag) e.preventDefault(); });
+
+  // ─── The sidebar's width ──────────────────────────────────────────
+  function sideWidth(w, keep = false) {
+    const width = Math.round(Math.max(200, Math.min(560, w)));
+    $("shell").style.setProperty("--side-w", `${width}px`);
+    if (keep) writeJSON(SIDE_KEY, width);
+    return width;
+  }
+  sideWidth(readJSON(SIDE_KEY, SIDE_WIDTH));
+  const resizer = $("resizer");
+  resizer.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    resizer.setPointerCapture(e.pointerId);
+    resizer.classList.add("on");
+  });
+  resizer.addEventListener("pointermove", (e) => {
+    if (resizer.hasPointerCapture(e.pointerId)) sideWidth(e.clientX - $("shell").getBoundingClientRect().left);
+  });
+  const doneResizing = (e) => {
+    if (!resizer.hasPointerCapture(e.pointerId)) return;
+    resizer.releasePointerCapture(e.pointerId);
+    resizer.classList.remove("on");
+    sideWidth(e.clientX - $("shell").getBoundingClientRect().left, true);
+  };
+  resizer.addEventListener("pointerup", doneResizing);
+  resizer.addEventListener("pointercancel", doneResizing);
+  resizer.addEventListener("dblclick", () => sideWidth(SIDE_WIDTH, true));
+  resizer.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    sideWidth(readJSON(SIDE_KEY, SIDE_WIDTH) + (e.key === "ArrowRight" ? 16 : -16), true);
+  });
+
   $("move").addEventListener("click", () => { if (current) openMove(current.id); });
   $("add").addEventListener("click", newNote);
   $("back").addEventListener("click", closeNote);
@@ -736,6 +930,7 @@ export async function mount(ctx) {
   const typing = (e) => e.target.closest?.("input, textarea, select, [contenteditable]");
   document.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+    if (e.key === "Escape" && (drag || !$("folder-menu").hidden)) { e.preventDefault(); endDrag(); closeFolderMenu(); return; }
     if ((e.key === "n" || e.key === "N") && !typing(e)) { e.preventDefault(); newNote(); }
     // Escape out of a note goes back to the list on a phone (not lifeOS's wheel).
     if (e.key === "Escape" && current && !typing(e) && $("shell").dataset.view === "note") { e.preventDefault(); closeNote(); }

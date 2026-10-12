@@ -1,8 +1,11 @@
 <div class="page">  <div class="glow" aria-hidden="true"></div>
   <div class="shell" id="shell" data-view="list">
-    <aside class="side" aria-label="Notes">
+    <aside class="side" id="side" aria-label="Notes">
       <header class="side-head">
         <h1 class="logo">notes<span class="dot">.</span></h1>
+        <button type="button" class="icon-btn" id="new-folder" aria-label="New folder" title="New folder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
+        </button>
         <button type="button" class="icon-btn" id="bin-btn" aria-label="Bin" title="Bin">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
         </button>
@@ -13,19 +16,8 @@
           <button type="button" class="tab" data-space="work">work</button>
           <button type="button" class="tab" data-space="joint">joint</button>
         </nav>
-        <div class="crumbs-bar">
-          <nav class="crumbs" id="crumbs" aria-label="Folder"></nav>
-          <button type="button" class="small-btn" id="new-folder" title="New folder">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5h5"/></svg>Folder
-          </button>
-        </div>
-        <div class="folder-tools" id="folder-tools" hidden>
-          <button type="button" class="small-btn" data-act="rename">Rename</button>
-          <button type="button" class="small-btn" data-act="move">Move</button>
-          <button type="button" class="small-btn danger" data-act="delete">Delete folder</button>
-        </div>
         <div id="notice"></div>
-        <div class="list" id="list"></div>
+        <div class="tree" id="tree" role="tree" aria-label="Notes and folders"></div>
       </div>
       <section id="bin" hidden aria-labelledby="bin-title">
         <button type="button" class="link" id="bin-back">‹ Back to notes</button>
@@ -34,6 +26,7 @@
         <div class="list" id="bin-list"></div>
       </section>
     </aside>
+    <div class="resizer" id="resizer" role="separator" aria-orientation="vertical" aria-label="Sidebar width" tabindex="0" title="Drag to resize (double-click to reset)"></div>
 
     <section class="note-view" aria-label="Note">
       <p class="empty-state" id="empty">Pick a note, or start a new one.</p>
@@ -90,6 +83,14 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
   </button>
   <div class="slash" id="slash" role="listbox" aria-label="Add a block" hidden></div>
+  <div class="menu" id="folder-menu" role="menu" hidden>
+    <button type="button" role="menuitem" data-act="note">New note here</button>
+    <button type="button" role="menuitem" data-act="folder">New folder inside</button>
+    <button type="button" role="menuitem" data-act="rename">Rename</button>
+    <button type="button" role="menuitem" data-act="move">Move…</button>
+    <button type="button" role="menuitem" data-act="delete" class="danger">Delete folder</button>
+  </div>
+  <div class="ghost-drag" id="ghost" aria-hidden="true" hidden></div>
 
   <dialog id="name-dlg" aria-labelledby="name-title">
     <form class="sheet" id="name-form" method="dialog">
