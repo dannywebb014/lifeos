@@ -57,7 +57,10 @@ const NoteTaskItem = TaskItem.extend({
 // (app "notes", data.spaces), with a copy on the device.
 const BUILT_IN = [{ id: "my", label: "my space" }, { id: "work", label: "work" }, { id: "joint", label: "joint", shared: true }];
 let SPACES = BUILT_IN;
-const SPACES_KEY = "notes.spaces";
+const SPACES_KEY = "notes.spaces";   // also read by search (spotlight.js)
+// Everything kept per person (app_state "notes", copy on the device): spaces,
+// favourite colours, and each space's look for light and dark mode.
+const STATE_KEY = "notes.state";
 const TASK_SPACES = ["my", "work", "joint"];   // the spaces tasks. has; a note in another space makes my space tasks
 const BASE_COLUMNS = "id,space,title,body_text,household_id,deleted_at,updated_at,parent_id,position,pinned,day";
 const SAVE_AFTER = 1000;
@@ -162,7 +165,18 @@ export async function mount(ctx) {
     SPACES = [...BUILT_IN.map(b => ({ ...b, label: list.find(x => x.id === b.id)?.label || b.label })),
       ...list.filter(x => !BUILT_IN.some(b => b.id === x.id)).map(x => ({ id: x.id, label: String(x.label).trim() }))];
   }
-  useSpaces(readJSON(SPACES_KEY, null));
+  let notesState = readJSON(STATE_KEY, null) || { spaces: readJSON(SPACES_KEY, null) || undefined };
+  useSpaces(notesState.spaces);
+  // Saves a change to it, here and with the account.
+  async function saveState(change) {
+    notesState = { ...notesState, ...change };
+    writeJSON(STATE_KEY, notesState);
+    if (change.spaces) writeJSON(SPACES_KEY, change.spaces);
+    const { data: { session } } = await supabase.auth.getSession();
+    const { error } = await supabase.from("app_state").upsert(
+      { user_id: session?.user?.id, app: "notes", data: notesState, updated_at: new Date().toISOString() }, { onConflict: "user_id,app" });
+    if (error) { toast(`Saved on this device only: ${error.message}`, { err: true }); console.error("notes.: saving settings failed:", error.message); }
+  }
   let space = SPACES.some(s => s.id === readJSON(SPACE_KEY)) ? readJSON(SPACE_KEY) : "my";
   let folder = readJSON(FOLDER_KEY, {})[space] || null;   // the folder shown, or null for the top of the space
   const opened = new Set(readJSON(OPEN_KEY, []));
@@ -389,7 +403,7 @@ export async function mount(ctx) {
   function showNote(row, { focus = false } = {}) {
     const parent = liveFolder(row.parent_id ?? row.parent)?.id ?? null;
     current = { id: row.id, isNew: Boolean(row.isNew), base: row.updated_at || null, space: row.space, parent, day: row.day || null, style: row.style || null };
-    applyStyle(current.style);
+    showLook();
     savedStyle = current.style;
     dirty = false;
     // The sidebar shows where the note lives, its folders open.
@@ -451,7 +465,7 @@ export async function mount(ctx) {
     stopMic();
     await flush();
     current = null;
-    applyStyle(null);
+    showLook();
     closeStyle();
     editor?.destroy(); editor = null;
     $("note").hidden = true;
@@ -701,6 +715,16 @@ export async function mount(ctx) {
     page.style.setProperty("--side-ink", side?.ink || "");
     page.style.setProperty("--side-on", side ? (isLight(side.ink) ? "#1a1e1a" : "#ffffff") : "");
   }
+  // A space's look for light or dark mode (whichever the device is in now),
+  // worn by its notes that have none of their own, and by the sidebar.
+  const darkMode = matchMedia("(prefers-color-scheme: dark)");
+  const modeName = () => (darkMode.matches ? "dark" : "light");
+  const spaceOf = (c) => (c?.day ? "my" : c?.space || space);
+  const lookFor = (sp) => notesState.looks?.[sp]?.[modeName()] || null;
+  const lookNow = () => (current ? current.style || lookFor(spaceOf(current)) : lookFor(space));
+  function showLook() { applyStyle(lookNow()); }
+  darkMode.addEventListener("change", () => { showLook(); if (!$("style-pop").hidden) paintStyle(); });
+
   let warnedStyle = false;
   function styleMissing() {
     if (warnedStyle) return;
@@ -712,10 +736,14 @@ export async function mount(ctx) {
   let savedStyle = null, styleTimer = 0;
   function setStyle(change, { soon = false } = {}) {
     if (!current) return;
-    const next = { ...(current.style || {}), ...change };
+    // A note following its space's look starts its own from that look.
+    const next = { ...(current.style || lookFor(spaceOf(current)) || {}), ...change };
     for (const k of Object.keys(next)) if (next[k] == null || next[k] === "") delete next[k];
-    current.style = Object.keys(next).length ? next : null;
-    applyStyle(current.style);
+    commitStyle(Object.keys(next).length ? next : null, { soon });
+  }
+  function commitStyle(next, { soon = false } = {}) {
+    current.style = next;
+    showLook();
     paintStyle();
     // Not saved yet: it goes in with the note's first save.
     if (current.isNew && !byId(current.id)) { if (dirty) keepUnsaved(entryNow()); return; }
@@ -729,12 +757,12 @@ export async function mount(ctx) {
         if (err.code === "42703") styleMissing();
         else toast(`Couldn’t change the style: ${err.message}`, { err: true });
         note.style = savedStyle;
-        if (current === note) { applyStyle(savedStyle); paintStyle(); }
+        if (current === note) { showLook(); paintStyle(); }
       }
     }, soon ? 600 : 0);
   }
   function paintStyle() {
-    const on = current?.style || {};
+    const on = current?.style || lookFor(spaceOf(current)) || {};
     const { card } = resolve(on);
     const sw = (kind, key, p) => `<button type="button" class="swatch${key ? "" : " none"}" data-kind="${kind}" data-key="${key || ""}" aria-pressed="${(on[kind] || "") === (key || "")}"
       title="${p ? p.label : "None"}" aria-label="${p ? p.label : "None"}"${p ? ` style="background:${kind === "card" ? p.bg : p.css}"` : ""}></button>`;
@@ -757,7 +785,82 @@ export async function mount(ctx) {
     for (const b of $("bd-dir").querySelectorAll("[data-angle]")) b.setAttribute("aria-pressed", String(b.dataset.angle === String(on.bdAngle || "180")));
     fillHex("bd-hex-a", hex(on.bdA)); fillPick("bd-pick-a", hex(on.bdA));
     fillHex("bd-hex-b", hex(on.bdB)); fillPick("bd-pick-b", hex(on.bdB));
+    paintFavs(on);
+    // The space's look, for the mode the device is in.
+    const sp = spaceOf(current), label = SPACES.find(x => x.id === sp)?.label || "this space", mode = modeName();
+    const own = Boolean(current?.style), has = Boolean(lookFor(sp));
+    $("style-foot").innerHTML = `<p>${own ? "This note has its own look." : has ? `Following ${esc(label)}’s ${mode}-mode look.` : `Pick colours, then you can make them ${esc(label)}’s ${mode}-mode look.`}</p>
+      <div class="row">${own ? `<button type="button" class="chip-btn" data-look="set">Make this ${esc(label)}’s ${mode} look</button>` : ""}
+      ${own && has ? `<button type="button" class="chip-btn" data-look="follow">Use ${esc(label)}’s look</button>` : ""}
+      ${has ? `<button type="button" class="chip-btn" data-look="clear">Clear ${esc(label)}’s ${mode} look</button>` : ""}</div>`;
   }
+  // ─── Favourite colours ────────────────────────────────────────────
+  // Kept as hex. One tapped fills the colour box last used.
+  const FIELD_LABEL = { cardHex: "page colour", ink: "text colour", bdA: "backdrop", bdB: "backdrop’s second colour" };
+  let favField = "cardHex", favEditing = false;
+  const favourites = () => notesState.favourites || [];
+  function paintFavs(on) {
+    const list = favourites();
+    $("favs").classList.toggle("editing", favEditing);
+    $("favs").innerHTML = list.length ? list.map(h => `<button type="button" class="fav" data-hex="${h}" style="background:${h}" title="${h.toUpperCase()}" aria-label="${favEditing ? "Remove" : "Use"} ${h.toUpperCase()}"><span class="x" aria-hidden="true">×</span></button>`).join("")
+      : `<p class="empty-hint">Tap ☆ beside a colour to keep it here.</p>`;
+    $("fav-edit").hidden = !list.length;
+    $("fav-edit").textContent = favEditing ? "Done" : "Edit";
+    $("fav-for").textContent = list.length && !favEditing ? `for the ${FIELD_LABEL[favField]}` : "";
+    for (const b of $("style-pop").querySelectorAll(".star")) {
+      const v = hex(on[b.dataset.fav]);
+      b.classList.toggle("on", Boolean(v && list.includes(v)));
+      b.textContent = v && list.includes(v) ? "★" : "☆";
+    }
+  }
+  function useFavourite(h) {
+    const on = current?.style || lookFor(spaceOf(current)) || {};
+    if (favField === "cardHex") setStyle({ card: "custom", cardHex: h });
+    else if (favField === "ink") setStyle({ ink: h });
+    else if (favField === "bdA") setStyle({ backdrop: "custom", bdA: h, bdB: on.backdrop === "custom" ? on.bdB : null, bdAngle: on.bdAngle || "180" });
+    else setStyle({ backdrop: "custom", bdA: hex(on.bdA) || h, bdB: h, bdAngle: on.bdAngle || "180" });
+  }
+  $("favs").addEventListener("click", (e) => {
+    const f = e.target.closest(".fav");
+    if (!f) return;
+    if (favEditing) { saveState({ favourites: favourites().filter(x => x !== f.dataset.hex) }); paintStyle(); }
+    else useFavourite(f.dataset.hex);
+  });
+  $("fav-edit").addEventListener("click", () => { favEditing = !favEditing; paintStyle(); });
+  for (const [pick, text, key] of [["card-pick", "card-hex", "cardHex"], ["ink-pick", "ink-hex", "ink"], ["bd-pick-a", "bd-hex-a", "bdA"], ["bd-pick-b", "bd-hex-b", "bdB"]]) {
+    for (const id of [pick, text]) for (const ev of ["focus", "pointerdown"]) $(id).addEventListener(ev, () => { favField = key; if (!favEditing) $("fav-for").textContent = favourites().length ? `for the ${FIELD_LABEL[key]}` : ""; });
+  }
+  $("style-pop").addEventListener("click", async (e) => {
+    const star = e.target.closest(".star");
+    if (star) {
+      const on = current?.style || lookFor(spaceOf(current)) || {};
+      const v = hex(on[star.dataset.fav]) || hex($({ cardHex: "card-hex", ink: "ink-hex", bdA: "bd-hex-a", bdB: "bd-hex-b" }[star.dataset.fav]).value);
+      if (!v) { toast("Choose a colour first, then ☆ keeps it."); return; }
+      const list = favourites();
+      await saveState({ favourites: list.includes(v) ? list.filter(x => x !== v) : [...list, v].slice(-24) });
+      favField = star.dataset.fav;
+      paintStyle();
+      return;
+    }
+    const look = e.target.closest("[data-look]")?.dataset.look;
+    if (!look || !current) return;
+    const sp = spaceOf(current), mode = modeName(), label = SPACES.find(x => x.id === sp)?.label || "this space";
+    const looks = { ...(notesState.looks || {}) };
+    if (look === "set") {
+      looks[sp] = { ...(looks[sp] || {}), [mode]: current.style };
+      await saveState({ looks });
+      commitStyle(null);   // this note now follows the space's look
+      toast(`${label}’s ${mode}-mode look is set.`);
+    } else if (look === "follow") commitStyle(null);
+    else {
+      const left = { ...(looks[sp] || {}) };
+      delete left[mode];
+      looks[sp] = left;
+      await saveState({ looks });
+      showLook(); paintStyle();
+    }
+  });
+
   function openStyle() {
     const pop = $("style-pop"), btn = $("style-btn");
     paintStyle();
@@ -772,6 +875,7 @@ export async function mount(ctx) {
   $("style-pop").addEventListener("click", (e) => {
     const sw = e.target.closest(".swatch");
     const on = current?.style || {};
+    if (sw?.dataset.key === "custom") favField = sw.dataset.kind === "card" ? "cardHex" : "bdA";
     if (sw?.dataset.key === "custom" && sw.dataset.kind === "card") setStyle({ card: "custom", cardHex: hex(on.cardHex) || resolve(on).card?.bg || "#f4e9d8" });
     else if (sw?.dataset.key === "custom") setStyle({ backdrop: "custom", bdA: hex(on.bdA) || "#23406e", bdB: on.bdA ? on.bdB : "#5b9cc4", bdAngle: on.bdAngle || "180" });
     else if (sw) setStyle({ [sw.dataset.kind]: sw.dataset.key || null });
@@ -1039,6 +1143,8 @@ export async function mount(ctx) {
     const first = $("tree").querySelector(".node.sel") || $("tree").querySelector(".node");
     if (first) first.tabIndex = 0;
     if (drag?.active) markDrag();
+    // Browsing a space: it wears its look.
+    if (!current && typeof showLook === "function") showLook();
   }
 
   function renderBin() {
@@ -1424,20 +1530,17 @@ export async function mount(ctx) {
       .map(x => ({ ...x, label: x.label || BUILT_IN.find(b => b.id === x.id).label }));
     $("spaces-dlg").close();
     useSpaces(list);
-    writeJSON(SPACES_KEY, list);
     renderList(); labelBack();
-    const { data: { session } } = await supabase.auth.getSession();
-    const { error } = await supabase.from("app_state").upsert(
-      { user_id: session?.user?.id, app: "notes", data: { spaces: list }, updated_at: new Date().toISOString() },
-      { onConflict: "user_id,app" });
-    if (error) { toast(`Saved on this device only: ${error.message}`, { err: true }); console.error("notes.: saving spaces failed:", error.message); }
+    saveState({ spaces: list });
   });
-  // Named the same on every device: the saved list, when it's there.
+  // The same on every device: what's saved with the account, when it's there.
   supabase.from("app_state").select("data").eq("app", "notes").maybeSingle().then(({ data, error }) => {
-    if (error || !data?.data?.spaces) return;
-    writeJSON(SPACES_KEY, data.data.spaces);
-    useSpaces(data.data.spaces);
-    renderList(); labelBack();
+    if (error || !data?.data) return;
+    notesState = { ...data.data };
+    writeJSON(STATE_KEY, notesState);
+    if (notesState.spaces) { writeJSON(SPACES_KEY, notesState.spaces); useSpaces(notesState.spaces); }
+    renderList(); labelBack(); showLook();
+    if (!$("style-pop").hidden) paintStyle();
   });
 
   // ─── Folding the sidebar away (⌘S) ────────────────────────────────

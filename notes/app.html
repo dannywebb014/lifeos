@@ -117,15 +117,17 @@
   </div>
   <div class="ghost-drag" id="ghost" aria-hidden="true" hidden></div>
   <div class="style-pop" id="style-pop" role="dialog" aria-label="Page style" hidden>
+    <p class="style-head fav-head">Favourites <span class="fav-for" id="fav-for"></span><button type="button" class="mini-link" id="fav-edit" hidden>Edit</button></p>
+    <div class="favs" id="favs"></div>
     <p class="style-head">Page colour</p>
     <div class="swatches" id="card-swatches"></div>
     <div class="hex-row" id="card-custom" hidden>
-      <input type="color" id="card-pick" aria-label="Pick the page colour"><input type="text" id="card-hex" class="hex" maxlength="7" placeholder="#F4E9D8" aria-label="Page colour as hex" spellcheck="false" autocapitalize="off">
+      <input type="color" id="card-pick" aria-label="Pick the page colour"><input type="text" id="card-hex" class="hex" maxlength="7" placeholder="#F4E9D8" aria-label="Page colour as hex" spellcheck="false" autocapitalize="off"><button type="button" class="star" data-fav="cardHex" title="Keep this colour in favourites" aria-label="Keep this colour in favourites">☆</button>
     </div>
     <p class="style-head">Text colour</p>
     <div class="hex-row">
       <button type="button" class="chip-btn" id="ink-auto" aria-pressed="true">Auto</button>
-      <input type="color" id="ink-pick" aria-label="Pick the text colour"><input type="text" id="ink-hex" class="hex" maxlength="7" placeholder="#2C2218" aria-label="Text colour as hex" spellcheck="false" autocapitalize="off">
+      <input type="color" id="ink-pick" aria-label="Pick the text colour"><input type="text" id="ink-hex" class="hex" maxlength="7" placeholder="#2C2218" aria-label="Text colour as hex" spellcheck="false" autocapitalize="off"><button type="button" class="star" data-fav="ink" title="Keep this colour in favourites" aria-label="Keep this colour in favourites">☆</button>
     </div>
     <p class="style-head">Backdrop</p>
     <div class="swatches" id="backdrop-swatches"></div>
@@ -134,14 +136,15 @@
         <button type="button" data-bd-kind="solid" aria-pressed="false">Solid</button><button type="button" data-bd-kind="gradient" aria-pressed="false">Gradient</button>
       </div>
       <div class="hex-row">
-        <input type="color" id="bd-pick-a" aria-label="Pick the backdrop colour"><input type="text" id="bd-hex-a" class="hex" maxlength="7" placeholder="#23406E" aria-label="Backdrop colour as hex" spellcheck="false" autocapitalize="off">
+        <input type="color" id="bd-pick-a" aria-label="Pick the backdrop colour"><input type="text" id="bd-hex-a" class="hex" maxlength="7" placeholder="#23406E" aria-label="Backdrop colour as hex" spellcheck="false" autocapitalize="off"><button type="button" class="star" data-fav="bdA" title="Keep this colour in favourites" aria-label="Keep this colour in favourites">☆</button>
         <span class="to" id="bd-to">to</span>
-        <input type="color" id="bd-pick-b" aria-label="Pick the gradient's second colour"><input type="text" id="bd-hex-b" class="hex" maxlength="7" placeholder="#5B9CC4" aria-label="Second colour as hex" spellcheck="false" autocapitalize="off">
+        <input type="color" id="bd-pick-b" aria-label="Pick the gradient's second colour"><input type="text" id="bd-hex-b" class="hex" maxlength="7" placeholder="#5B9CC4" aria-label="Second colour as hex" spellcheck="false" autocapitalize="off"><button type="button" class="star" id="bd-star-b" data-fav="bdB" title="Keep this colour in favourites" aria-label="Keep this colour in favourites">☆</button>
       </div>
       <div class="seg" role="group" aria-label="Gradient direction" id="bd-dir">
         <button type="button" data-angle="180" aria-label="Top to bottom">↓</button><button type="button" data-angle="135" aria-label="Diagonal">↘</button><button type="button" data-angle="90" aria-label="Left to right">→</button><button type="button" data-angle="radial" aria-label="From the middle">◎</button>
       </div>
     </div>
+    <div class="style-foot" id="style-foot"></div>
   </div>
 
   <dialog id="name-dlg" aria-labelledby="name-title">
