@@ -926,13 +926,14 @@ export async function mount(ctx) {
     if (!ready) { $("tree").innerHTML = ""; return; }
     if (folder && liveFolder(folder)?.space !== space) folder = null;
     const label = SPACES.find(x => x.id === space).label;
-    const rows = [`<div class="node${current?.day === today() ? " sel" : ""}" role="treeitem" tabindex="-1" data-kind="daily" title="Today’s note (D)"><span class="gap"></span><span class="ic" aria-hidden="true">${DAY_ICON}</span><span class="label">today<i>.</i></span></div>`];
+    const rows = [`<div class="node${current?.day === today() ? " sel" : ""}" role="treeitem" tabindex="-1" data-kind="daily" title="Today’s note (D)"><span class="gap"></span><span class="ic" aria-hidden="true">${DAY_ICON}</span><span class="label">today<i>.</i></span></div>`,
+      `<div class="tree-line" data-drop="root" title="The top of ${esc(label)}" aria-hidden="true"></div>`];
     const pinned = notes.filter(n => n.pinned && !n.deleted_at && !n.day && n.space === space).sort(byName);
     if (pinned.length) {
       rows.push(`<div class="tree-head" data-drop="pin">Pinned</div>`);
       for (const n of pinned) rows.push(`<div class="node pinned${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="${isFolder(n) ? "folder" : "page"}" data-pinned><span class="gap"></span><span class="ic" aria-hidden="true">${isFolder(n) ? FOLDER_ICON : PIN_ICON}</span><span class="label">${esc(nameOf(n))}</span></div>`);
+      rows.push(`<div class="tree-line" data-drop="root" title="The top of ${esc(label)}" aria-hidden="true"></div>`);
     }
-    rows.push(`<div class="tree-head" data-drop="root" title="The top of ${esc(label)}">${esc(label)}</div>`);
     const walk = (parent, depth) => {
       const here = childrenOf(parent);
       if (!here.length && parent) rows.push(`<p class="tree-empty" style="--depth:${depth}">Empty</p>`);
@@ -1111,10 +1112,10 @@ export async function mount(ctx) {
   });
   $("tree").addEventListener("click", (e) => {
     if (suppressClick) return;
-    const head = e.target.closest(".tree-head");
-    if (head) { if (head.dataset.drop === "root") { goTo(space, null); renderList(); } return; }
+    if (e.target.closest(".tree-head")) return;
     const node = e.target.closest(".node");
-    if (!node) return;
+    // The line under today., or empty space below the notes: new notes go at the top.
+    if (!node) { if (e.target.closest(".tree-line") || e.target === $("tree")) { goTo(space, null); renderList(); } return; }
     const id = node.dataset.id;
     if (node.dataset.kind === "daily") { openDay(today()); return; }
     // A pinned folder: shown open where it lives.
@@ -1195,9 +1196,10 @@ export async function mount(ctx) {
   // folder puts it inside. Also the space's name (the top), "Pinned" (pins
   // it) and a space's tab.
   function dropTarget(x, y) {
-    const el = atPoint(x, y)?.closest?.(".node, .tree-head, .tab");
+    const el = atPoint(x, y)?.closest?.(".node, .tree-head, .tree-line, .tab");
     if (!el) return null;
     if (el.classList.contains("tab")) return { el, mode: "space" };
+    if (el.classList.contains("tree-line")) return { el, mode: "top" };
     if (el.classList.contains("tree-head")) return { el, mode: el.dataset.drop === "pin" ? "pin" : "top" };
     if (el.hasAttribute("data-pinned") || el.dataset.kind === "daily" || el.dataset.id === drag.id || drag.blocked.has(el.dataset.id)) return null;
     const r = el.getBoundingClientRect(), f = (y - r.top) / r.height;

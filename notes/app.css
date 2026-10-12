@@ -115,6 +115,15 @@
       .node .more { opacity:1; }
     }
     .node.pinned .ic svg, .node[data-kind="daily"] .ic { color:var(--accent); }
+    /* today. sits centred above the rest, a faint line below it (also the
+       place to drop something to move it to the top of the space). */
+    .node[data-kind="daily"] { justify-content:center; padding:0 8px; }
+    .node[data-kind="daily"] .gap { display:none; }
+    .node[data-kind="daily"] .label { flex:none; }
+    .tree-line { display:flex; align-items:center; height:15px; margin:3px 8px; border-radius:4px; cursor:pointer; }
+    .tree-line::before { content:""; flex:1; height:1px; background:var(--line-strong); }
+    .tree-line.drop { background:none; box-shadow:none; }
+    .tree-line.drop::before { height:2px; background:var(--accent); }
     .node[data-kind="daily"] .label { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; color:var(--logo); }
     .node[data-kind="daily"] .label i { font-style:normal; color:var(--accent); }
     .space-rows { display:grid; gap:8px; }
