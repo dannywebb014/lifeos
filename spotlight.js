@@ -51,6 +51,20 @@ const SOURCES = [
     return i.data.map(w => ({ title: w.name, sub: `${w.person_id ? `for ${who[w.person_id] || "someone"}` : "my wishlist"}${w.status !== "open" ? ` · ${w.status === "given" ? "given" : "got it"}` : ""}`,
       text: words([w.name, w.notes, w.url, who[w.person_id]]), href: `${BASE}/lifeos/wish/#${w.id}` }));
   } },
+  // notes.: titles and everything written in them; a daily note by its date.
+  { id: "notes", name: "notes", load: async () => {
+    const { data, error } = await supabase.from("notes").select("id, title, body_text, day, kind, space").is("deleted_at", null);
+    if (error) throw error;
+    const named = Object.fromEntries((read("notes.spaces") || []).map(x => [x.id, x.label]));
+    const spaceName = (id) => named[id] || { my: "my space", work: "work", joint: "joint" }[id] || "notes";
+    const dayName = (d) => new Date(`${d}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+    return data.filter(n => n.kind !== "folder").map(n => {
+      const lines = (n.body_text || "").split("\n").map(x => x.trim()).filter(Boolean);
+      const title = n.title || (n.day ? dayName(n.day) : lines.shift()) || "Untitled";
+      return { title, sub: [n.day ? "daily note" : spaceName(n.space), lines[0] || ""].filter(Boolean).join(" · ").slice(0, 120),
+        text: words([n.title, n.body_text, n.day && dayName(n.day)]), href: `${BASE}/lifeos/notes/#${n.day ? `day=${n.day}` : n.id}` };
+    });
+  } },
   { id: "motivation", name: "motivation", load: async () => {
     const { data, error } = await supabase.from("motivation_quotes").select("text, author");
     if (error) throw error;
@@ -140,10 +154,10 @@ const CSS = `
   .sl-empty { padding:18px 14px; color:var(--sl-muted); text-align:center; }
   .sl-back, .sl-btn { --sl-surface:#fffdf8; --sl-line:#e5dfd0; --sl-text:#2c2218; --sl-muted:#6b6055; --sl-dim:#a8a295; --sl-hover:#f2eee5;
     --sl-mark:#7d6fd630; --sl-veil:rgba(30,24,16,.25); --sl-shadow:0 1px 3px rgba(44,34,24,.06);
-    --food:#3d6b3d; --places:#b8436d; --motivation:#3d6ba8; --media:#b08a1c; --tasks:#2f8a84; --wish:#c4475a; --week:#7d6fd6; }
+    --food:#3d6b3d; --places:#b8436d; --motivation:#3d6ba8; --media:#b08a1c; --tasks:#2f8a84; --wish:#c4475a; --week:#7d6fd6; --notes:#5b6b82; }
   @media (prefers-color-scheme: dark) { .sl-back, .sl-btn { --sl-surface:#232823; --sl-line:#3a423a; --sl-text:#ebe8de; --sl-muted:#a8a89c; --sl-dim:#6b7568;
     --sl-hover:#2e342e; --sl-mark:#b4a9ff38; --sl-veil:rgba(0,0,0,.45); --sl-shadow:0 1px 4px rgba(0,0,0,.35);
-    --food:#9fc89f; --places:#f0a8c4; --motivation:#9fc0e0; --media:#ecd27a; --tasks:#8fd0c9; --wish:#f2a7b0; --week:#b4a9ff; } }
+    --food:#9fc89f; --places:#f0a8c4; --motivation:#9fc0e0; --media:#ecd27a; --tasks:#8fd0c9; --wish:#f2a7b0; --week:#b4a9ff; --notes:#8fa1ba; } }
 `;
 
 export function mountSpotlight({ button = true, go = () => false, enabled = () => true } = {}) {

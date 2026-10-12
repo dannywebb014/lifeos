@@ -12,6 +12,8 @@
 //     breakfast", "meal: takeaway Friday" (mealadd.js)
 //   - wish.: "want AirPods" for my wishlist; "… for Sam" (someone on a gift
 //     list) or "gift for Sam: …" for theirs
+//   - notes.: "note: …" (or "note, …", "journal: …") goes on the end of
+//     today's daily note, starting it if there isn't one
 //   - tasks.: everything else, read the way tasks. reads dictation (space,
 //     date, time), with a time blocked out on the calendar
 // Tapping a line's label sends it somewhere else instead. Enter adds them all;
@@ -35,8 +37,37 @@ const fold = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toL
 const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
 const DAYS_TODAY = () => ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][(new Date().getDay() + 6) % 7];
 const PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
-const KINDS = ["task", "shop", "meal", "wish", "place", "media"];
-const KIND_LABEL = { task: "tasks.", shop: "shopping", meal: "meal plan", wish: "wish.", place: "places.", media: "media." };
+const KINDS = ["task", "shop", "meal", "wish", "place", "media", "note"];
+const KIND_LABEL = { task: "tasks.", shop: "shopping", meal: "meal plan", wish: "wish.", place: "places.", media: "media.", note: "notes." };
+// "note: call the vet back", "note, felt good today" (dictation adds the comma)
+const NOTE = /^(?:note|journal|diary)\s*[:\-–,]\s*/i;
+const pad2 = (n) => String(n).padStart(2, "0");
+const isoToday = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+// A line on the end of today's note in notes. (one per person per day,
+// sql/notes.sql), which is started if there isn't one. Resolves its undo.
+async function addToToday(text) {
+  const day = isoToday();
+  const para = { type: "paragraph", content: [{ type: "text", text }] };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data: row, error } = await supabase.from("notes").select("id, body, body_text").eq("day", day).is("deleted_at", null).maybeSingle();
+    if (error) throw error;
+    if (row) {
+      // Its last empty line (the editor keeps one) makes way for this one.
+      const content = [...(row.body?.content || [])];
+      while (content.length && content.at(-1).type === "paragraph" && !content.at(-1).content?.length) content.pop();
+      const body = { ...(row.body || { type: "doc" }), type: "doc", content: [...content, para] };
+      const body_text = row.body_text ? `${row.body_text}\n${text}` : text;
+      const r = await supabase.from("notes").update({ body, body_text }).eq("id", row.id);
+      if (r.error) throw r.error;
+      return async () => { const u = await supabase.from("notes").update({ body: row.body, body_text: row.body_text }).eq("id", row.id); if (u.error) throw u.error; };
+    }
+    const r = await supabase.from("notes").insert({ space: "my", day, title: "", body: { type: "doc", content: [para] }, body_text: text }).select("id").single();
+    if (r.error?.code === "23505") continue;   // started on another device just now: add to that one
+    if (r.error) throw r.error;
+    return async () => { const d = await supabase.from("notes").delete().eq("id", r.data.id); if (d.error) throw d.error; };
+  }
+  throw new Error("couldn’t reach today’s note");
+}
 // "place: Dishoom Shoreditch", "visit - Kew Gardens"
 const PLACE = /^(?:places?|visit|go\s+to)\s*[:\-–]\s*/i;
 // "watch: The Bear", "read: Piranesi", "listen to: Blue Rev"
@@ -63,6 +94,7 @@ const CSS = `
   .cap-row { display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:10px; }
   .cap-kind { flex-shrink:0; min-width:5.4rem; border:1px solid var(--c); color:var(--c); background:none; border-radius:999px;
     font:inherit; font-size:.78rem; font-weight:700; padding:3px 9px; cursor:pointer; }
+  .cap-kind.note { --c:var(--notes); }
   .cap-kind.task { --c:var(--tasks); } .cap-kind.shop { --c:var(--food); } .cap-kind.meal { --c:var(--food); } .cap-kind.wish { --c:var(--wish); }
   .cap-main { flex:1; min-width:0; }
   .cap-main .sl-s .on { color:var(--food); }
@@ -147,6 +179,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
   };
   function guess(raw) {
     const t = raw.trim();
+    if (NOTE.test(t)) return "note";
     if (PLACE.test(t)) return "place";
     if (MEDIA.test(t)) return "media";
     if (/^(?:shop(?:ping)?\s*[:\-]|buy\s|get\s|pick\s+up\s|need\s(?!to\b))/i.test(t)) return "shop";
@@ -174,6 +207,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     }
     if (kind === "meal") return meals.read(t, true) || { day: null, meal: "Dinner", recipe: null, note: cap(t), people: null };
     if (kind === "place") return { name: cap(t.replace(PLACE, "").trim()) };
+    if (kind === "note") return { text: cap(t.replace(NOTE, "").trim()) };
     if (kind === "media") {
       const m = t.match(MEDIA);
       const word = m ? m[1] : "media";
@@ -188,6 +222,7 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
     if (kind === "wish") return s.person ? `for ${esc(s.person.name)}` : "my wishlist";
     if (kind === "meal") return `${esc(s.day || "Today")} ${esc(s.meal.toLowerCase())} · for ${esc(meals.names(s.people))}${s.recipe ? "" : " · as a note"}`;
     if (kind === "place") return "found on the map when you next open places.";
+    if (kind === "note") return "on today’s note";
     if (kind === "media") return s.col ? `to ${esc(s.col.name)}` : `<span class="on">open media. once, or start with watch:, read: or listen:</span>`;
     const space = SPACES.find(x => x.id === s.space)?.label || s.space;
     return [space, s.date && dayText(s.date), s.time && `${s.time}${s.minutes ? ` for ${s.minutes} min` : ""}`, s.priority && `${["", "low", "medium", "high"][s.priority]} priority`, s.repeat?.text].filter(Boolean).map(esc).join(" · ");
@@ -254,6 +289,10 @@ export function mountCapture({ enabled = () => true, added = () => {} } = {}) {
         } else if (l.kind === "media") {
           l.undo = await addMedia(l.shape);
           touched.add("media");
+        } else if (l.kind === "note") {
+          if (!l.shape.text) throw new Error("nothing to note");
+          l.undo = await addToToday(l.shape.text);
+          touched.add("notes");
         } else {
           const { data: { user } } = await supabase.auth.getUser();
           const { data, error } = await supabase.from("wish_items").insert({ name: l.shape.name, user_id: user.id, person_id: l.shape.person?.id || null, status: "open" }).select("id").single();

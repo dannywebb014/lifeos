@@ -877,6 +877,11 @@ export async function mount(ctx) {
       await patch([id], { parent_id: toParent, space: toSpace, household_id, position: null });
       if (ids.length > 1) await patch(ids.slice(1), { space: toSpace, household_id });
     } catch (err) { error = err; }
+    // Their checklist tasks go with them (a space tasks. doesn't have: my space).
+    if (!error && toSpace !== item.space && tasksOn) {
+      const r = await supabase.from("hub_tasks").update({ space: TASK_SPACES.includes(toSpace) ? toSpace : "my", household_id: toSpace === "joint" ? household_id : null }).in("note_id", ids);
+      if (r.error && !tasksMissing(r.error)) console.error("notes.: moving the note's tasks failed:", r.error.message);
+    }
     if (error) {
       toast(error.code === "42501" ? "Only the person who wrote it can take it out of joint." : `Couldn’t move it: ${error.message}`, { err: true });
       if (error.code !== "42501") console.error("notes.: move failed:", error.message);

@@ -16,7 +16,7 @@ import { supabase } from "/lifeos/auth.js";
 import { nextDue, describe, withAnchor } from "./repeat.js?v=1";
 
 const TABLE = "hub_tasks";
-const COLUMNS = "id,space,text,date,priority,repeat,household_id,created_at";
+const COLUMNS = "id,space,text,date,priority,repeat,household_id,created_at,note_id";
 // The apps call the joint. space "todoist" (parse.js), from when only Todoist had it.
 const toDb = (spaceId) => (spaceId === "todoist" ? "joint" : spaceId);
 const fromDb = (space) => (space === "joint" ? "todoist" : space);
@@ -87,7 +87,23 @@ const toTask = (r) => ({
   builtin: true,
   shared: Boolean(r.household_id),
   where: { key: "lifeos", label: r.household_id ? "shared" : "lifeOS", rank: 0 },
+  // Written as a checklist line in notes. (notes.' embed.js): the note, named by loadTasks.
+  note: r.note_id ? { id: r.note_id, name: "" } : null,
 });
+
+// The notes tasks were written in, by name: its title, or its day for a
+// daily note. A note that's gone (or in the bin) leaves the task without one.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+async function nameNotes(tasks) {
+  const ids = [...new Set(tasks.filter(t => t.note).map(t => t.note.id))];
+  if (!ids.length) return tasks;
+  const { data, error } = await supabase.from("notes").select("id,title,day,deleted_at").in("id", ids);
+  if (error) return tasks;
+  const names = new Map(data.filter(n => !n.deleted_at).map(n => [n.id,
+    n.title || (n.day ? `${Number(n.day.slice(8))} ${MONTHS[Number(n.day.slice(5, 7)) - 1]} note` : "Untitled note")]));
+  for (const t of tasks) if (t.note) t.note = names.has(t.note.id) ? { id: t.note.id, name: names.get(t.note.id) } : null;
+  return tasks;
+}
 
 // Supabase answers with a plain object; the apps expect an Error with a message.
 const check = ({ data, error }) => {
@@ -109,7 +125,7 @@ export function householdId() {
 
 // Every open task: your own, and joint. ones shared with your household.
 export async function loadTasks() {
-  return check(await supabase.from(TABLE).select(COLUMNS).is("done_at", null).order("created_at")).map(toTask);
+  return nameNotes(check(await supabase.from(TABLE).select(COLUMNS).is("done_at", null).order("created_at")).map(toTask));
 }
 
 // [{ text, date, spaceId, priority?, repeat? }] → the new tasks, in the same order.
