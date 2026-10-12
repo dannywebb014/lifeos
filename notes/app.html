@@ -1,0 +1,51 @@
+<div class="page">  <div class="glow" aria-hidden="true"></div>
+  <main>
+    <h1 class="logo">notes<span class="dot">.</span></h1>
+    <p class="note">A first test of the editor. What you write here stays on this device only, so try anything.</p>
+
+    <section class="card">
+      <div class="toolbar" id="toolbar" role="toolbar" aria-label="Formatting">
+        <button type="button" data-cmd="h1" aria-label="Heading" title="Heading">H1</button>
+        <button type="button" data-cmd="h2" aria-label="Smaller heading" title="Smaller heading">H2</button>
+        <button type="button" data-cmd="bold" aria-label="Bold" title="Bold (⌘B)"><b>B</b></button>
+        <button type="button" data-cmd="italic" aria-label="Italic" title="Italic (⌘I)"><i>I</i></button>
+        <span class="sep" aria-hidden="true"></span>
+        <button type="button" data-cmd="bullets" aria-label="Bullet list" title="Bullet list">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/></svg>
+        </button>
+        <button type="button" data-cmd="numbers" aria-label="Numbered list" title="Numbered list">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 6h10M10 12h10M10 18h10"/><path d="M4 5h1.5v4M4 9h3M4 14.5c.5-.7 2.8-.9 2.8.6 0 1.2-2.8 2-2.8 2.9h3" stroke-width="1.5"/></svg>
+        </button>
+        <button type="button" data-cmd="checks" aria-label="Checklist" title="Checklist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="6" rx="1.5"/><path d="m4.5 7 1 1 2-2"/><rect x="3" y="14" width="6" height="6" rx="1.5"/><path d="M13 7h8M13 17h8"/></svg>
+        </button>
+        <button type="button" data-cmd="quote" aria-label="Quote" title="Quote">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h4v4c0 3-1.5 5-4 6l-.8-1.4C7.7 14.8 8.5 13.5 8.6 12H7zM14 7h4v4c0 3-1.5 5-4 6l-.8-1.4c1.5-.8 2.3-2.1 2.4-3.6H14z"/></svg>
+        </button>
+        <button type="button" data-cmd="code" aria-label="Code" title="Code">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4"/></svg>
+        </button>
+        <span class="sep" aria-hidden="true"></span>
+        <button type="button" data-cmd="undo" aria-label="Undo" title="Undo (⌘Z)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+        </button>
+        <button type="button" data-cmd="redo" aria-label="Redo" title="Redo (⇧⌘Z)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg>
+        </button>
+      </div>
+      <div id="editor" class="editor"></div>
+    </section>
+
+    <section class="card checks" aria-labelledby="checks-title">
+      <h2 id="checks-title">Try each of these on your iPhone</h2>
+      <ol class="check-list" id="check-list"></ol>
+      <label class="field">Anything odd? <span class="dim">(optional)</span>
+        <textarea id="check-note" rows="3" placeholder="e.g. the cursor jumped to the start after a full stop"></textarea>
+      </label>
+      <div class="row">
+        <button type="button" class="primary" id="send">Send results</button>
+        <button type="button" class="ghost" id="clear">Clear the test note</button>
+      </div>
+    </section>
+  </main>
+</div>

@@ -1,0 +1,110 @@
+/* notes. — its look, inside its own shadow root (see /lifeos/embed.js). */
+:host { display:block; height:100%; }
+.page { position:relative; min-height:100%; }
+
+    /* My Hub neutrals, with notes.' slate as the accent */
+    :host {
+      --bg:#EEF0F2; --surface:#fffdf8; --input:#f0ece3; --hover:#f6f4ee; --line:#e2e0d8; --line-strong:#d6d3c8;
+      --text:#2c2218; --muted:#6b6055; --dim:#a8a295; --danger:#b54e4e;
+      --logo:#3f4a5c; --accent:#5b6b82; --accent-soft:#5b6b8218; --on-accent:#fff;
+      --green:#3f7a4a; --green-soft:#3f7a4a16; --red:#b5443c; --red-soft:#b5443c14;
+      --shadow:0 1px 3px rgba(44,34,24,.06); --glow:0;
+      --disp:var(--hub-head, 'Lora', Georgia, serif);
+      --body:var(--hub-body, 'Source Sans 3', system-ui, -apple-system, sans-serif);
+      color-scheme:light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :host {
+        --bg:#1a1e1a; --surface:#232823; --input:#2e342e; --hover:#2a302a; --line:#3a423a; --line-strong:#434b43;
+        --text:#ebe8de; --muted:#a8a89c; --dim:#6b7568; --danger:#c96b6b;
+        --logo:#c3cddb; --accent:#8fa1ba; --accent-soft:#8fa1ba22; --on-accent:#1a1e1a;
+        --green:#7cc48a; --green-soft:#7cc48a1c; --red:#e8907f; --red-soft:#e8907f1c;
+        --shadow:0 1px 4px rgba(0,0,0,.35); --glow:.18;
+        color-scheme:dark;
+      }
+    }
+    *, *::before, *::after { box-sizing:border-box; }
+    .page { margin:0; background:var(--bg); color:var(--text); font-family:var(--body); font-size:16px; line-height:1.45; -webkit-font-smoothing:antialiased;
+      padding:calc(20px + env(safe-area-inset-top)) 16px calc(100px + env(safe-area-inset-bottom)); }
+    button, input, textarea { font:inherit; color:inherit; }
+    button { cursor:pointer; }
+    :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    [hidden] { display:none !important; }
+    .glow { position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none; }
+    .glow::before { content:""; position:absolute; width:80vmax; height:80vmax; border-radius:50%; opacity:var(--glow); left:-40vmax; top:-30vmax; background:radial-gradient(circle, var(--accent) 0%, transparent 62%); }
+
+    main { position:relative; z-index:1; max-width:760px; margin:0 auto; display:grid; grid-template-columns:minmax(0, 1fr); gap:16px; }
+    .logo { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:2.2rem; letter-spacing:-.03em; line-height:1; color:var(--logo); margin:0; }
+    .logo .dot { font-style:normal; color:var(--accent); }
+    .note { margin:0; color:var(--muted); font-size:.95rem; }
+    .dim { color:var(--dim); font-weight:400; }
+
+    .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+
+    /* The formatting bar stays in view while the note scrolls. */
+    .toolbar { position:sticky; top:0; z-index:2; display:flex; gap:2px; align-items:center; overflow-x:auto; scrollbar-width:none;
+      padding:6px; border-bottom:1px solid var(--line); background:var(--surface); border-radius:14px 14px 0 0; }
+    .toolbar::-webkit-scrollbar { display:none; }
+    .toolbar button { flex:none; min-width:40px; height:40px; border:0; border-radius:8px; background:none; color:var(--muted);
+      display:grid; place-items:center; font-weight:700; font-size:.92rem; -webkit-tap-highlight-color:transparent; }
+    .toolbar button svg { width:20px; height:20px; }
+    .toolbar button:hover { background:var(--hover); }
+    .toolbar button[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent); }
+    .toolbar button:disabled { opacity:.35; }
+    .toolbar .sep { flex:none; width:1px; height:22px; background:var(--line); margin:0 4px; }
+
+    /* The note itself. TipTap's own stylesheet goes in the main page, not
+       here, so the few rules ProseMirror needs are repeated below. */
+    .editor { padding:14px 18px 22px; min-height:240px; }
+    .ProseMirror { outline:none; min-height:200px; white-space:pre-wrap; word-wrap:break-word; -webkit-font-variant-ligatures:none; font-variant-ligatures:none; font-feature-settings:"liga" 0; font-size:17px; line-height:1.55; caret-color:var(--accent); }
+    .ProseMirror [contenteditable="false"] { white-space:normal; }
+    .ProseMirror pre { white-space:pre-wrap; }
+    .ProseMirror-hideselection *::selection { background:transparent; }
+    .ProseMirror-hideselection { caret-color:transparent; }
+    .ProseMirror-separator { display:inline !important; border:none !important; margin:0 !important; }
+    .ProseMirror > * + * { margin-top:.6em; }
+    .ProseMirror p { margin:0; }
+    .ProseMirror h1, .ProseMirror h2, .ProseMirror h3 { font-family:var(--disp); font-weight:600; line-height:1.2; margin:1em 0 0; }
+    .ProseMirror h1 { font-size:1.6rem; }
+    .ProseMirror h2 { font-size:1.3rem; }
+    .ProseMirror h3 { font-size:1.1rem; }
+    .ProseMirror > :first-child { margin-top:0; }
+    .ProseMirror ul, .ProseMirror ol { padding-left:1.4em; margin-bottom:0; }
+    .ProseMirror li > p { margin:0; }
+    .ProseMirror li + li { margin-top:.15em; }
+    .ProseMirror blockquote { margin:.6em 0 0; padding-left:14px; border-left:3px solid var(--line-strong); color:var(--muted); }
+    .ProseMirror code { background:var(--input); border-radius:5px; padding:.1em .35em; font-size:.88em; font-family:ui-monospace, Menlo, monospace; }
+    .ProseMirror pre { background:var(--input); border-radius:10px; padding:12px 14px; font-family:ui-monospace, Menlo, monospace; font-size:.88rem; }
+    .ProseMirror pre code { background:none; padding:0; font-size:inherit; }
+    .ProseMirror hr { border:0; border-top:1px solid var(--line-strong); margin:1.2em 0; }
+    .ProseMirror a { color:var(--accent); }
+    .ProseMirror p.is-editor-empty:first-child::before { content:attr(data-placeholder); color:var(--dim); float:left; height:0; pointer-events:none; }
+
+    /* Checklists: a box you tap, the line beside it. */
+    .ProseMirror ul[data-type="taskList"] { list-style:none; padding-left:0; }
+    .ProseMirror ul[data-type="taskList"] ul[data-type="taskList"] { padding-left:1.6em; }
+    .ProseMirror ul[data-type="taskList"] > li { display:flex; gap:10px; align-items:flex-start; }
+    .ProseMirror ul[data-type="taskList"] > li > label { flex:none; margin-top:.18em; user-select:none; -webkit-user-select:none; }
+    .ProseMirror ul[data-type="taskList"] > li > label input { width:20px; height:20px; margin:0; accent-color:var(--accent); cursor:pointer; }
+    .ProseMirror ul[data-type="taskList"] > li > div { flex:1; min-width:0; }
+    .ProseMirror ul[data-type="taskList"] > li[data-checked="true"] > div { color:var(--dim); text-decoration:line-through; }
+
+    /* The things to try. */
+    .checks { padding:16px 18px; display:grid; gap:12px; }
+    .checks h2 { margin:0; font-family:var(--disp); font-size:1.15rem; font-weight:600; }
+    .check-list { margin:0; padding-left:1.3em; display:grid; gap:10px; }
+    .check-list li { padding-left:2px; }
+    .check-list .what { display:block; }
+    .check-list .how { display:block; color:var(--muted); font-size:.9rem; }
+    .verdict { display:flex; gap:6px; margin-top:6px; }
+    .verdict button { border:1px solid var(--line); background:var(--surface); color:var(--muted); border-radius:20px; padding:4px 14px; min-height:34px; font-weight:600; font-size:.88rem; }
+    .verdict button[aria-pressed="true"][data-v="ok"] { background:var(--green-soft); border-color:var(--green); color:var(--green); }
+    .verdict button[aria-pressed="true"][data-v="bad"] { background:var(--red-soft); border-color:var(--red); color:var(--red); }
+    .field { display:grid; gap:6px; font-weight:600; font-size:.95rem; }
+    .field textarea { font-weight:400; border:1px solid var(--line); background:var(--input); border-radius:10px; padding:10px 12px; resize:vertical; font-size:16px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; }
+    .primary { border:0; background:var(--accent); color:var(--on-accent); border-radius:10px; padding:10px 18px; font-weight:600; min-height:44px; }
+    .ghost { border:1px solid var(--line); background:none; color:var(--muted); border-radius:10px; padding:10px 16px; font-weight:600; min-height:44px; }
+
+    .toast { position:fixed; left:50%; bottom:calc(28px + env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:50; background:var(--text); color:var(--bg); padding:10px 18px; border-radius:10px; font-weight:600; box-shadow:0 8px 24px rgba(0,0,0,.2); max-width:calc(100vw - 32px); }
+    .toast.err { background:var(--danger); color:#fff; }

@@ -30,6 +30,7 @@ export const APP_LIST = [
   { id: "places", name: "places", about: "Places you want to go, on a map." },
   { id: "media", name: "media", about: "What you’re watching, reading and listening to (uses Craft)." },
   { id: "wish", name: "wish", about: "Wishlists, and gift ideas for the people you buy for." },
+  { id: "notes", name: "notes", about: "Pages and daily notes, with tasks you write in them." },
 ];
 
 export function get() {

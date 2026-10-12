@@ -3,7 +3,7 @@
 // not again on their other devices). Apps can be changed later in Account.
 
 import { supabase } from "/lifeos/auth.js";
-import * as settings from "/lifeos/shared/settings.js?v=1";
+import * as settings from "/lifeos/shared/settings.js?v=2";
 
 const CSS = `
   .wl-back { position:fixed; inset:0; z-index:200; display:grid; place-items:center; padding:16px;

@@ -44,6 +44,7 @@
       --media-logo: #8a6a12; --media-accent: #b08a1c;
       --week-logo: #5a4fa0; --week-accent: #7d6fd6;
       --wish-logo: #9a2f3c; --wish-accent: #c4475a;
+      --notes-logo: #3f4a5c; --notes-accent: #5b6b82;
       --cal-logo: #2f6aa3; --cal-accent: #3b7bbf;
 
       --glow: .28;
@@ -69,6 +70,7 @@
         --media-logo: #ecd27a; --media-accent: #d4b23c;
         --week-logo: #c9c1ff; --week-accent: #b4a9ff;
         --wish-logo: #f2a7b0; --wish-accent: #e27a8a;
+        --notes-logo: #c3cddb; --notes-accent: #8fa1ba;
         --cal-logo: #a9cdf2; --cal-accent: #6fa8e0;
         --glow: .22;
         color-scheme: dark;
@@ -388,7 +390,7 @@
     const ALL_APPS = [
       // unload: closed rather than kept in the background, because calendar.
       // re-signs in to Google when the phone wakes, and that takes over the whole page.
-      { id: 'cal',        name: 'calendar',   url: '/calhub/', unload: true, embed: '/calhub/embed.js?v=5' },
+      { id: 'cal',        name: 'calendar',   url: '/calhub/', unload: true, embed: '/calhub/embed.js?v=6' },
       { id: 'tasks',      name: 'tasks',      url: '/taskhub/', embed: '/taskhub/embed.js?v=5' },
       { id: 'food',       name: 'food',       url: '/foodhub/', embed: '/foodhub/embed.js?v=1' },
       { id: 'train',      name: 'train',      url: '/train/', embed: '/train/embed.js?v=2' },
@@ -398,6 +400,7 @@
       { id: 'places',     name: 'places',     url: '/places/', embed: '/places/embed.js?v=1' },
       { id: 'media',      name: 'media',      url: '/mediahub/', embed: '/mediahub/embed.js?v=1' },
       { id: 'wish',       name: 'wish',       url: '/lifeos/wish/', embed: '/lifeos/wish/embed.js?v=1' },
+      { id: 'notes',      name: 'notes',      url: '/lifeos/notes/', embed: '/lifeos/notes/embed.js?v=1' },
     ];
     // The apps this person chose for their wheel (the welcome, or Account →
     // Apps), from the device copy of their settings (shared/settings.js keeps
@@ -421,7 +424,7 @@
     // to "/" would leave the app, and iPhone then shows Safari's bars.
     const PRETTY = Boolean(window.LIFEOS_PRETTY) && !location.pathname.startsWith('/lifeos');
     const ROUTES = { cal: '/calendar', tasks: '/tasks', food: '/food', train: '/train', breathe: '/breathe',
-      motivation: '/motivation', places: '/places', media: '/media', wish: '/wish' };
+      motivation: '/motivation', places: '/places', media: '/media', wish: '/wish', notes: '/notes' };
     const HOME = PRETTY ? '/' : location.pathname;
     const addressFor = (id) => PRETTY ? ROUTES[id] || '/' : '#' + id;
     const appInAddress = () => PRETTY

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>notes.</title>
+  <meta name="description" content="notes. — pages, daily notes and tasks written in notes">
+  <link rel="icon" href="/lifeos/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/lifeos/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="notes.">
+  <meta name="theme-color" content="#EEF0F2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a1e1a" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="/lifeos/fonts.css">
+  <style>html,body{margin:0;height:100%;background:#f4f1ea}@media (prefers-color-scheme:dark){html,body{background:#1a1e1a}}</style>
+  <script type="module">
+    // One sign-in for every lifeOS app: no verified session, off to /lifeos/signin/.
+    // Then the app itself (embed.js), the same code lifeOS runs inside its page.
+    import { requireAuth } from "/lifeos/auth.js";
+    import { standalone } from "/lifeos/embed.js";
+    await requireAuth();
+    await standalone(new URL("./embed.js", location.href).href);
+  </script>
+</head>
+<body>
+  <script>
+    // Opens fast and works with no signal (push-sw.js keeps lifeOS's files here, and shows notifications).
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/lifeos/push-sw.js", { scope: "/lifeos/" }).catch(err => console.warn("Offline copy:", err));
+  </script>
+</body>
+</html>

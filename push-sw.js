@@ -86,7 +86,7 @@ self.addEventListener("notificationclick", (e) => {
   e.waitUntil((async () => {
     const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     // lifeOS: /lifeos/ on GitHub Pages; "/" or an app's word ("/tasks") on the lifeOS site.
-    const SHELL = /^\/(lifeos\/|calendar|tasks|food|train|breathe|motivation|places|media|wish)?$/;
+    const SHELL = /^\/(lifeos\/|calendar|tasks|food|train|breathe|motivation|places|media|wish|notes)?$/;
     const home = open.find(c => SHELL.test(new URL(c.url).pathname));
     if (home) {
       await home.focus();
