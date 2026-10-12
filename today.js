@@ -5,7 +5,7 @@
 //   mountToday({ open: (appId, url) => …, setup: () => …, enabled });
 //
 // Cards: calendar events, tasks due (and overdue), dinner from food.'s plan,
-// the train. session, and the breathe. streak. Each loads on its own and
+// the train. session, the breathe. streak, and the day's note in notes. Each loads on its own and
 // keeps quiet if it can't (no data, no sign-in), so one slow or broken app
 // never holds up the rest.
 //
@@ -305,12 +305,28 @@ async function breathing() {
   };
 }
 
+// ── notes.: the day's note ──
+// One per person per day (notes.day, sql/notes.sql). The card opens it, or
+// starts it if there isn't one yet.
+async function dailyNote({ day, tomorrow }) {
+  const iso = isoDay(day);
+  const { data, error } = await supabase.from("notes").select("body_text").eq("day", iso).is("deleted_at", null).maybeSingle();
+  if (error) { if (/does not exist|PGRST205|42703/.test(`${error.code} ${error.message}`)) return null; throw error; }
+  const lines = (data?.body_text || "").split("\n").map(s => s.trim()).filter(Boolean);
+  const url = `${BASE}/lifeos/notes/#day=${iso}`;
+  const sub = tomorrow ? "tomorrow’s note" : "today’s note";
+  if (!lines.length) return { main: "Nothing written yet", sub: `${sub} · tap to start`, muted: true, url, items: [] };
+  return { main: lines[0], sub: lines.length > 1 ? `${sub} · ${lines.length - 1} more line${lines.length === 2 ? "" : "s"}` : sub, url,
+    items: lines.slice(1).map(text => ({ text })) };
+}
+
 const CARDS = [
   { id: "cal", label: "calendar", load: calendar },
   { id: "tasks", label: "tasks", load: tasks },
   { id: "food", label: "food", load: dinner },
   { id: "train", label: "train", load: training },
   { id: "breathe", label: "breathe", load: breathing },
+  { id: "notes", label: "notes", load: dailyNote },
 ];
 
 const SUN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
@@ -440,7 +456,10 @@ export function mountToday({ open: openApp, setup = () => {}, enabled = () => tr
   };
 
   // Only apps on this person's wheel (lifeos/index.html sets the list).
-  const cards = CARDS.filter(c => !window.lifeosApps || window.lifeosApps.includes(c.id)).map(c => {
+  const cards = CARDS.filter(c => !window.lifeosApps || window.lifeosApps.includes(c.id)).map(def => {
+    // The card's own record: refresh() puts each load's result on it, and a
+    // tap reads it from here (so a card can open its app at a recipe or a day).
+    const c = { ...def, el: null, result: undefined };
     const b = document.createElement("button");
     b.type = "button"; b.className = "tcard wait";
     b.style.setProperty("--c", `var(--${c.id}-logo)`);
@@ -457,7 +476,8 @@ export function mountToday({ open: openApp, setup = () => {}, enabled = () => tr
       else openApp(c.id, c.result?.url);
     };
     row.append(b);
-    return { ...c, el: b, result: undefined };
+    c.el = b;
+    return c;
   });
 
   let gen = 0;

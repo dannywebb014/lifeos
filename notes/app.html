@@ -36,12 +36,29 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg><span id="back-label">notes</span>
           </button>
           <span class="status" id="status" role="status" aria-live="polite"></span>
+          <button type="button" class="icon-btn" id="pin" aria-label="Pin to the top" title="Pin to the top" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 4 4H6l4-4-1-6zM12 14v6"/></svg>
+          </button>
           <button type="button" class="icon-btn" id="move" aria-label="Move to a folder or space" title="Move">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M10 13h6M13.5 10.5 16 13l-2.5 2.5"/></svg>
           </button>
           <button type="button" class="icon-btn" id="delete" aria-label="Move to the bin" title="Move to the bin">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
           </button>
+        </div>
+        <div class="day-bar" id="day-bar" hidden>
+          <button type="button" class="icon-btn" id="day-prev" aria-label="The day before" title="The day before">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg>
+          </button>
+          <h2 class="day-title" id="day-title"></h2>
+          <button type="button" class="icon-btn" id="day-next" aria-label="The day after" title="The day after">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg>
+          </button>
+          <label class="day-pick" title="Pick a day"><span class="sr">Pick a day</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+            <input type="date" id="day-input">
+          </label>
+          <button type="button" class="small-btn" id="day-today">Today</button>
         </div>
         <textarea id="title" class="title" rows="1" placeholder="Untitled" aria-label="Title" autocapitalize="sentences"></textarea>
         <div class="card">
@@ -86,6 +103,7 @@
   <div class="menu" id="folder-menu" role="menu" hidden>
     <button type="button" role="menuitem" data-act="note">New note here</button>
     <button type="button" role="menuitem" data-act="folder">New folder inside</button>
+    <button type="button" role="menuitem" data-act="pin">Pin to the top</button>
     <button type="button" role="menuitem" data-act="rename">Rename</button>
     <button type="button" role="menuitem" data-act="move">Move…</button>
     <button type="button" role="menuitem" data-act="delete" class="danger">Delete folder</button>

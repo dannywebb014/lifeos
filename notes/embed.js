@@ -14,13 +14,20 @@
 // the title; anything sits in one through parent_id, folders in folders too.
 // A folder goes to the bin with everything in it, all stamped with the same
 // deleted_at, so restoring it brings the lot back.
+//
+// Order in the sidebar: folders then notes, A to Z, until something is
+// dragged into place; then that folder keeps the order given (position, a
+// number kept as text; a drop between two takes the number halfway). Pinned
+// notes and folders also show at the top. Daily notes (day set, one per
+// person per day) live outside the folders, reached from "Today" and the
+// day arrows, and from today.'s notes. card (#day=YYYY-MM-DD).
 import { Editor, Extension, StarterKit, TaskList, TaskItem, Placeholder, Suggestion } from "/lifeos/vendor/tiptap-3.31.3.js?v=2";
 import { fill, docFor } from "/lifeos/embed.js";
 import { householdId } from "/lifeos/shared/hubtasks.js?v=5";
 import * as speech from "/lifeos/shared/speech.js?v=15";
 
 const SPACES = [{ id: "my", label: "my space" }, { id: "work", label: "work" }, { id: "joint", label: "joint" }];
-const BASE_COLUMNS = "id,space,title,body_text,household_id,deleted_at,updated_at,parent_id";
+const BASE_COLUMNS = "id,space,title,body_text,household_id,deleted_at,updated_at,parent_id,position,pinned,day";
 const SAVE_AFTER = 1000;
 const BIN_DAYS = 30;
 const UNSAVED = "notes.unsaved";
@@ -32,6 +39,14 @@ const SIDE_WIDTH = 272;
 const LONG_PRESS = 350;              // ms held on a touch screen before dragging starts
 const CHEV = `<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
 const PAGE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>`;
+const DAY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`;
+const PIN_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 4 4H6l4-4-1-6zM12 14v6"/></svg>`;
+const pad2 = (n) => String(n).padStart(2, "0");
+const isoDay = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const today = () => isoDay(new Date());
+const shiftDay = (iso, n) => { const [y, m, d] = iso.split("-").map(Number); return isoDay(new Date(y, m - 1, d + n)); };
+const dayLabel = (iso) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", ...(y !== new Date().getFullYear() ? { year: "numeric" } : {}) }); };
 const DOTS = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>`;
 const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
 
@@ -149,8 +164,16 @@ export async function mount(ctx) {
   async function push(e) {
     if (e.isNew) {
       const { data, error } = await supabase.from("notes")
-        .insert({ id: e.id, space: e.space, parent_id: e.parent ?? null, household_id: await householdFor(e.space), title: e.title, body: e.body, body_text: e.body_text })
+        .insert({ id: e.id, space: e.space, parent_id: e.parent ?? null, household_id: e.day ? null : await householdFor(e.space), title: e.title, body: e.body, body_text: e.body_text, ...(e.day ? { day: e.day } : {}) })
         .select(listColumns).single();
+      // That day's note was started on another device: theirs stays, this
+      // one is kept beside it as an ordinary note.
+      if (error?.code === "23505" && /per_day/.test(error.message)) {
+        const { data: theirs, error: err2 } = await supabase.from("notes").select("*").eq("day", e.day).is("deleted_at", null).maybeSingle();
+        if (err2) throw err2;
+        const copy = await push({ ...e, id: crypto.randomUUID(), day: null, title: `${dayLabel(e.day)} (from another device)` });
+        return { conflict: true, theirs, copy };
+      }
       // Already there: an earlier save arrived but its reply didn't.
       if (error?.code === "23505") return push({ ...e, isNew: false, base: null });
       if (error) throw error;
@@ -165,12 +188,13 @@ export async function mount(ctx) {
     const { data: theirs, error: err2 } = await supabase.from("notes").select("*").eq("id", e.id).maybeSingle();
     if (err2) throw err2;
     if (!theirs) return push({ ...e, isNew: true });
-    const copy = await push({ ...e, id: crypto.randomUUID(), isNew: true, space: theirs.space, parent: theirs.parent_id, title: `${e.title || "Untitled"} (conflict copy)` });
+    const copy = await push({ ...e, id: crypto.randomUUID(), isNew: true, day: null, space: theirs.space, parent: theirs.parent_id,
+      title: `${e.day ? dayLabel(e.day) : e.title || "Untitled"} (conflict copy)` });
     return { conflict: true, theirs, copy };
   }
 
   // ─── The open note ────────────────────────────────────────────────
-  let current = null;   // { id, isNew, base, space, parent }
+  let current = null;   // { id, isNew, base, space, parent, day }
   let editor = null;
   let dirty = false, saving = null, saveTimer = 0, retryTimer = 0;
 
@@ -179,7 +203,7 @@ export async function mount(ctx) {
     $("status").classList.toggle("warn", warn);
   }
   function entryNow() {
-    return { id: current.id, isNew: current.isNew, base: current.base, space: current.space, parent: current.parent,
+    return { id: current.id, isNew: current.isNew, base: current.base, space: current.space, parent: current.parent, day: current.day || null,
       title: $("title").value.trim(), body: editor.getJSON(), body_text: editor.getText({ blockSeparator: "\n" }).trim() };
   }
   function changed() {
@@ -284,11 +308,16 @@ export async function mount(ctx) {
 
   function showNote(row, { focus = false } = {}) {
     const parent = liveFolder(row.parent_id ?? row.parent)?.id ?? null;
-    current = { id: row.id, isNew: Boolean(row.isNew), base: row.updated_at || null, space: row.space, parent };
+    current = { id: row.id, isNew: Boolean(row.isNew), base: row.updated_at || null, space: row.space, parent, day: row.day || null };
     dirty = false;
     // The sidebar shows where the note lives, its folders open.
-    goTo(row.space, parent);
-    for (const f of pathTo(parent)) setOpen(f.id, true);
+    if (!current.day) { goTo(row.space, parent); for (const f of pathTo(parent)) setOpen(f.id, true); }
+    // A daily note's name is its date, with arrows to the days either side.
+    $("day-bar").hidden = !current.day;
+    $("title").hidden = Boolean(current.day);
+    $("pin").hidden = $("move").hidden = Boolean(current.day);
+    if (current.day) { $("day-title").textContent = dayLabel(current.day); $("day-input").value = current.day; }
+    paintPin();
     $("title").value = row.title || "";
     makeEditor(row.body);
     labelBack();
@@ -299,7 +328,7 @@ export async function mount(ctx) {
     sizeTitle();   // once shown: a hidden box measures 0
     status(row.isNew ? "" : row.updated_at ? `Edited ${when(row.updated_at)}` : "");
     renderList();
-    if (focus === "title") $("title").focus();
+    if (focus === "title" && !current.day) $("title").focus();
     else if (focus) focusNote("end");
   }
 
@@ -315,6 +344,17 @@ export async function mount(ctx) {
       showNote({ ...(data || {}), ...draft, updated_at: draft.base, isNew: !data });
       changed();
     } else showNote(data);
+  }
+
+  // A day's note: the one there is, or a new one started when you write.
+  async function openDay(iso) {
+    if (!ready) return;
+    stopMic();
+    await saveNow();
+    const draft = Object.values(unsaved()).find(e => e.day === iso);
+    const there = notes.find(n => n.day === iso && !n.deleted_at) || (draft && { id: draft.id });
+    if (there) return openNote(there.id);
+    showNote({ id: crypto.randomUUID(), isNew: true, space: "my", day: iso, title: "", body: null }, { focus: "end" });
   }
 
   async function newNote() {
@@ -386,6 +426,69 @@ export async function mount(ctx) {
   const liveFolder = (id) => { const f = byId(id); return isFolder(f) && !f.deleted_at ? f : null; };
   // Where something shows: in its folder if that's still there, else the top of its space.
   const placeOf = (n) => { const f = liveFolder(n.parent_id); return f && f.space === n.space ? f.id : null; };
+  // What sits in a folder (or the top of a space), in sidebar order.
+  function childrenOf(parent, spaceId = space) {
+    const here = notes.filter(n => n.space === spaceId && !n.deleted_at && !n.day && placeOf(n) === parent);
+    const plain = [...here.filter(isFolder).sort(byName), ...here.filter(n => !isFolder(n)).sort(byName)];
+    if (!here.some(n => n.position != null)) return plain;
+    // Placed by hand: those in order, anything new after them as before.
+    const pos = (n) => n.position == null ? Infinity : Number(n.position);
+    return plain.map((n, i) => [n, i]).sort((a, b) => pos(a[0]) - pos(b[0]) || a[1] - b[1]).map(x => x[0]);
+  }
+
+  // Changes some rows. The open note's version moves on with it, so its next
+  // save isn't mistaken for another device's.
+  async function patch(ids, fields) {
+    const { data, error } = await supabase.from("notes").update(fields).in("id", ids).select("id,updated_at");
+    if (error) throw error;
+    for (const r of data) {
+      mergeRow({ id: r.id, ...fields, updated_at: r.updated_at });
+      if (current?.id === r.id) current.base = r.updated_at;
+    }
+    return data;
+  }
+
+  // ─── Pinning ──────────────────────────────────────────────────────
+  function paintPin() {
+    const on = Boolean(current && byId(current.id)?.pinned);
+    $("pin").setAttribute("aria-pressed", String(on));
+    $("pin").title = on ? "Unpin" : "Pin to the top";
+    $("pin").setAttribute("aria-label", $("pin").title);
+  }
+  async function togglePin(id, on = !byId(id)?.pinned) {
+    if (current?.id === id) {
+      if (current.isNew && !byId(id)) { toast("Write something first, then pin it."); return; }
+      await saveNow();
+    }
+    try { await patch([id], { pinned: on }); }
+    catch (err) { toast(`Couldn’t ${on ? "pin" : "unpin"} it: ${err.message}`, { err: true }); return; }
+    renderList(); paintPin();
+  }
+
+  // ─── Placing by hand ──────────────────────────────────────────────
+  // Puts a note or folder at `index` among the things in `parent`.
+  async function placeAt(id, parent, index) {
+    if (current?.id === id) await saveNow();
+    const item = byId(id);
+    if (!item) return;
+    const others = childrenOf(parent, item.space).filter(n => n.id !== id);
+    try {
+      // The first time a folder is ordered by hand, what's in it is numbered as it stands.
+      const unnumbered = others.filter(n => n.position == null);
+      if (unnumbered.length) await Promise.all(others.map((n, i) => patch([n.id], { position: String((i + 1) * 1024) })));
+      const at = (n) => Number(n.position);
+      const before = others[index - 1], after = others[index];
+      const pos = before && after ? (at(before) + at(after)) / 2 : before ? at(before) + 1024 : after ? at(after) - 1024 : 1024;
+      await patch([id], { position: String(pos), parent_id: parent });
+    } catch (err) {
+      toast(`Couldn’t put it there: ${err.message}`, { err: true });
+      console.error("notes.: reorder failed:", err.message);
+      return;
+    }
+    setOpen(parent, true);
+    if (current?.id === id) { current.parent = parent; labelBack(); }
+    renderList();
+  }
   function descendants(id, keep = () => true) {
     const out = [], queue = [id];
     while (queue.length) {
@@ -401,6 +504,7 @@ export async function mount(ctx) {
   }
   const folderName = (f) => f.title || "Untitled folder";
   function labelBack() {
+    if (current?.day) { $("back-label").textContent = "notes"; return; }
     const f = current && liveFolder(current.parent);
     $("back-label").textContent = f ? folderName(f) : SPACES.find(x => x.id === current?.space)?.label || "notes";
   }
@@ -442,9 +546,8 @@ export async function mount(ctx) {
     const f = byId(id);
     const name = await askName({ heading: "Rename folder", value: f.title, ok: "Rename" });
     if (!name || name === f.title) return;
-    const { error } = await supabase.from("notes").update({ title: name }).eq("id", id);
-    if (error) { toast(`Couldn’t rename it: ${error.message}`, { err: true }); return; }
-    mergeRow({ id, title: name });
+    try { await patch([id], { title: name }); }
+    catch (err) { toast(`Couldn’t rename it: ${err.message}`, { err: true }); return; }
     renderList(); labelBack();
   }
   async function deleteFolder(id) {
@@ -501,16 +604,17 @@ export async function mount(ctx) {
     // Into another space: everything inside goes too.
     const ids = toSpace !== item.space ? [id, ...descendants(id)] : [id];
     const household_id = await householdFor(toSpace);
-    const first = await supabase.from("notes").update({ parent_id: toParent, space: toSpace, household_id }).eq("id", id);
-    const rest = ids.length > 1 && !first.error ? await supabase.from("notes").update({ space: toSpace, household_id }).in("id", ids.slice(1)) : {};
-    const error = first.error || rest.error;
+    let error = null;
+    try {
+      await patch([id], { parent_id: toParent, space: toSpace, household_id, position: null });
+      if (ids.length > 1) await patch(ids.slice(1), { space: toSpace, household_id });
+    } catch (err) { error = err; }
     if (error) {
       toast(error.code === "42501" ? "Only the person who wrote it can take it out of joint." : `Couldn’t move it: ${error.message}`, { err: true });
       if (error.code !== "42501") console.error("notes.: move failed:", error.message);
       return;
     }
-    mergeRow({ id, parent_id: toParent, space: toSpace, household_id });
-    for (const i of ids.slice(1)) mergeRow({ id: i, space: toSpace, household_id });
+
     if (current && ids.includes(current.id)) {
       current.space = toSpace;
       if (current.id === id) current.parent = toParent;
@@ -537,6 +641,7 @@ export async function mount(ctx) {
   // A note with no title is named by its first line.
   function naming(n) {
     const lines = (n.body_text || "").split("\n").map(s => s.trim()).filter(Boolean);
+    if (n.day) return { name: dayLabel(n.day), rest: lines.join(" ") };
     return n.title ? { name: n.title, rest: lines.join(" ") } : { name: lines[0] || "", rest: lines.slice(1).join(" ") };
   }
 
@@ -549,11 +654,17 @@ export async function mount(ctx) {
     if (!ready) { $("tree").innerHTML = ""; return; }
     if (folder && liveFolder(folder)?.space !== space) folder = null;
     const label = SPACES.find(x => x.id === space).label;
-    const rows = [`<div class="tree-head" data-drop="root" title="The top of ${esc(label)}">${esc(label)}</div>`];
+    const rows = [`<div class="node${current?.day === today() ? " sel" : ""}" role="treeitem" tabindex="-1" data-kind="daily" title="Today’s note (D)"><span class="gap"></span><span class="ic" aria-hidden="true">${DAY_ICON}</span><span class="label">Today’s note</span></div>`];
+    const pinned = notes.filter(n => n.pinned && !n.deleted_at && !n.day && n.space === space).sort(byName);
+    if (pinned.length) {
+      rows.push(`<div class="tree-head" data-drop="pin">Pinned</div>`);
+      for (const n of pinned) rows.push(`<div class="node pinned${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="${isFolder(n) ? "folder" : "page"}" data-pinned><span class="gap"></span><span class="ic" aria-hidden="true">${isFolder(n) ? FOLDER_ICON : PIN_ICON}</span><span class="label">${esc(nameOf(n))}</span></div>`);
+    }
+    rows.push(`<div class="tree-head" data-drop="root" title="The top of ${esc(label)}">${esc(label)}</div>`);
     const walk = (parent, depth) => {
-      const here = notes.filter(n => n.space === space && !n.deleted_at && placeOf(n) === parent);
+      const here = childrenOf(parent);
       if (!here.length && parent) rows.push(`<p class="tree-empty" style="--depth:${depth}">Empty</p>`);
-      for (const n of [...here.filter(isFolder).sort(byName), ...here.filter(n => !isFolder(n)).sort(byName)]) {
+      for (const n of here) {
         if (isFolder(n)) {
           const open = opened.has(n.id);
           rows.push(`<div class="node${folder === n.id && !current ? " sel" : ""}" role="treeitem" tabindex="-1" aria-expanded="${open}" data-id="${n.id}" data-kind="folder" style="--depth:${depth}">${CHEV}<span class="ic" aria-hidden="true">${FOLDER_ICON}</span><span class="label">${esc(folderName(n))}</span><button type="button" class="more" data-more aria-label="Options for ${esc(folderName(n))}" tabindex="-1">${DOTS}</button></div>`);
@@ -566,7 +677,7 @@ export async function mount(ctx) {
       }
     };
     walk(null, 0);
-    if (rows.length === 1) rows.push(`<p class="tree-empty">Nothing in ${esc(label)} yet. Tap + to start a note.</p>`);
+    if (!childrenOf(null).length) rows.push(`<p class="tree-empty">Nothing in ${esc(label)} yet. Tap + to start a note.</p>`);
     $("tree").innerHTML = rows.join("");
     // One row takes Tab; the arrow keys move between them.
     const first = $("tree").querySelector(".node.sel") || $("tree").querySelector(".node");
@@ -728,10 +839,17 @@ export async function mount(ctx) {
   });
   $("tree").addEventListener("click", (e) => {
     if (suppressClick) return;
-    if (e.target.closest(".tree-head")) { goTo(space, null); renderList(); return; }
+    const head = e.target.closest(".tree-head");
+    if (head) { if (head.dataset.drop === "root") { goTo(space, null); renderList(); } return; }
     const node = e.target.closest(".node");
     if (!node) return;
     const id = node.dataset.id;
+    if (node.dataset.kind === "daily") { openDay(today()); return; }
+    // A pinned folder: shown open where it lives.
+    if (node.hasAttribute("data-pinned") && node.dataset.kind === "folder") {
+      goTo(space, id); setOpen(id, true); for (const f of pathTo(id)) setOpen(f.id, true);
+      renderList(); focusRow(id); return;
+    }
     if (e.target.closest("[data-more]")) { openFolderMenu(id, e.target.closest("[data-more]")); return; }
     if (node.dataset.kind === "folder") { setOpen(id, !opened.has(id)); goTo(space, id); renderList(); focusRow(id); }
     else openNote(id);
@@ -751,7 +869,7 @@ export async function mount(ctx) {
     e.preventDefault();
   });
   function focusRow(id) {
-    const n = $("tree").querySelector(`.node[data-id="${id}"]`);
+    const n = $("tree").querySelector(`.node[data-id="${id}"]:not([data-pinned])`);
     if (!n) return;
     for (const x of $("tree").querySelectorAll(".node")) x.tabIndex = -1;
     n.tabIndex = 0;
@@ -764,6 +882,7 @@ export async function mount(ctx) {
     closeFolderMenu();
     const m = $("folder-menu");
     m.dataset.id = id;
+    m.querySelector('[data-act="pin"]').textContent = byId(id)?.pinned ? "Unpin" : "Pin to the top";
     const r = from.getBoundingClientRect(), page = document.body.getBoundingClientRect();
     m.hidden = false;
     m.style.left = `${Math.max(8, Math.min(r.right - page.left - m.offsetWidth, page.width - m.offsetWidth - 8))}px`;
@@ -782,6 +901,7 @@ export async function mount(ctx) {
     closeFolderMenu();
     if (act === "note") { goTo(space, id); setOpen(id, true); newNote(); }
     else if (act === "folder") newFolder(id);
+    else if (act === "pin") togglePin(id);
     else if (act === "rename") renameFolder(id);
     else if (act === "move") openMove(id);
     else deleteFolder(id);
@@ -798,16 +918,32 @@ export async function mount(ctx) {
   let drag = null, suppressClick = false;
   const tree = $("tree"), ghost = $("ghost");
   const atPoint = (x, y) => (root.elementFromPoint ? root.elementFromPoint(x, y) : null);
+  // Where a drop would land: { el, mode }. On a row: its top quarter puts
+  // it before, its bottom quarter after (a line shows), the middle of a
+  // folder puts it inside. Also the space's name (the top), "Pinned" (pins
+  // it) and a space's tab.
   function dropTarget(x, y) {
-    const t = atPoint(x, y)?.closest?.('.node[data-kind="folder"], .tree-head, .tab');
-    if (!t) return null;
-    if (t.classList.contains("node") && drag.blocked.has(t.dataset.id)) return null;
-    return t;
+    const el = atPoint(x, y)?.closest?.(".node, .tree-head, .tab");
+    if (!el) return null;
+    if (el.classList.contains("tab")) return { el, mode: "space" };
+    if (el.classList.contains("tree-head")) return { el, mode: el.dataset.drop === "pin" ? "pin" : "top" };
+    if (el.hasAttribute("data-pinned") || el.dataset.kind === "daily" || el.dataset.id === drag.id || drag.blocked.has(el.dataset.id)) return null;
+    const r = el.getBoundingClientRect(), f = (y - r.top) / r.height;
+    const isDir = el.dataset.kind === "folder";
+    const mode = isDir ? (f < 0.25 ? "before" : f > 0.75 ? "after" : "into") : f < 0.5 ? "before" : "after";
+    return { el, mode };
+  }
+  function showDrop(t) {
+    for (const n of root.querySelectorAll(".drop, .drop-before, .drop-after")) n.classList.remove("drop", "drop-before", "drop-after");
+    if (t) t.el.classList.add(t.mode === "before" ? "drop-before" : t.mode === "after" ? "drop-after" : "drop");
   }
   function markDrag() {
     tree.querySelector(`.node[data-id="${drag.id}"]`)?.classList.add("dragging");
-    if (drag.over?.dataset.id) drag.over = tree.querySelector(`.node[data-id="${drag.over.dataset.id}"]`) || null;
-    drag.over?.classList.add("drop");
+    if (drag.over?.el.dataset.id) {
+      const el = tree.querySelector(`.node[data-id="${drag.over.el.dataset.id}"]:not([data-pinned])`);
+      drag.over = el ? { ...drag.over, el } : null;
+    }
+    showDrop(drag.over);
   }
   function startDrag() {
     if (!drag) return;
@@ -827,13 +963,13 @@ export async function mount(ctx) {
     if (!drag) return;
     clearTimeout(drag.timer); clearTimeout(drag.hold);
     try { tree.releasePointerCapture(drag.pointerId); } catch { /* not held */ }
-    for (const n of root.querySelectorAll(".drop, .dragging")) n.classList.remove("drop", "dragging");
+    for (const n of root.querySelectorAll(".drop, .drop-before, .drop-after, .dragging")) n.classList.remove("drop", "drop-before", "drop-after", "dragging");
     ghost.hidden = true;
     drag = null;
   }
   tree.addEventListener("pointerdown", (e) => {
     const node = e.target.closest(".node");
-    if (!node || !ready || e.button !== 0 || e.target.closest("[data-more]")) return;
+    if (!node || !ready || e.button !== 0 || e.target.closest("[data-more]") || node.dataset.kind === "daily") return;
     drag = { id: node.dataset.id, x: e.clientX, y: e.clientY, pointerId: e.pointerId, touch: e.pointerType !== "mouse", active: false, over: null };
     if (drag.touch) drag.timer = setTimeout(startDrag, LONG_PRESS);
   });
@@ -848,17 +984,18 @@ export async function mount(ctx) {
     }
     moveGhost(e.clientX, e.clientY);
     const t = dropTarget(e.clientX, e.clientY);
-    if (t === drag.over) return;
-    drag.over?.classList.remove("drop");
-    clearTimeout(drag.hold);
+    if (t?.el === drag.over?.el && t?.mode === drag.over?.mode) return;
+    const sameEl = t?.el === drag.over?.el;
     drag.over = t;
+    showDrop(t);
+    if (sameEl) return;
+    clearTimeout(drag.hold);
     if (!t) return;
-    t.classList.add("drop");
     // Held over a shut folder, it opens; over another space's tab, that space shows.
     drag.hold = setTimeout(() => {
-      if (!drag?.active || drag.over !== t) return;
-      if (t.classList.contains("node") && !opened.has(t.dataset.id)) { setOpen(t.dataset.id, true); renderList(); }
-      else if (t.classList.contains("tab") && t.dataset.space !== space) { goTo(t.dataset.space, null); drag.over = null; renderList(); }
+      if (!drag?.active || drag.over?.el !== t.el) return;
+      if (t.mode === "into" && !opened.has(t.el.dataset.id)) { setOpen(t.el.dataset.id, true); renderList(); }
+      else if (t.mode === "space" && t.el.dataset.space !== space) { goTo(t.el.dataset.space, null); drag.over = null; renderList(); }
     }, 650);
   });
   tree.addEventListener("pointerup", (e) => {
@@ -870,11 +1007,20 @@ export async function mount(ctx) {
     // The release isn't a click on the row it started on.
     suppressClick = true;
     setTimeout(() => { suppressClick = false; }, 0);
-    if (!t) return;
     const item = byId(id);
-    const toSpace = t.classList.contains("tab") ? t.dataset.space : space;
-    const toParent = t.classList.contains("node") ? t.dataset.id : null;
-    if (item && (item.space !== toSpace || (placeOf(item) || null) !== toParent)) moveItem(id, toSpace, toParent);
+    if (!t || !item) return;
+    if (t.mode === "pin") { togglePin(id, true); return; }
+    if (t.mode === "before" || t.mode === "after") {
+      const target = byId(t.el.dataset.id);
+      const parent = placeOf(target);
+      const list = childrenOf(parent).filter(n => n.id !== id);
+      const index = list.findIndex(n => n.id === target.id) + (t.mode === "after" ? 1 : 0);
+      placeAt(id, parent, index);
+      return;
+    }
+    const toSpace = t.mode === "space" ? t.el.dataset.space : space;
+    const toParent = t.mode === "into" ? t.el.dataset.id : null;
+    if (item.space !== toSpace || (placeOf(item) || null) !== toParent) moveItem(id, toSpace, toParent);
   });
   tree.addEventListener("pointercancel", endDrag);
   // Once a drag has started, the finger moves the row, not the page.
@@ -915,6 +1061,11 @@ export async function mount(ctx) {
   });
 
   $("move").addEventListener("click", () => { if (current) openMove(current.id); });
+  $("pin").addEventListener("click", () => { if (current) togglePin(current.id); });
+  $("day-prev").addEventListener("click", () => current?.day && openDay(shiftDay(current.day, -1)));
+  $("day-next").addEventListener("click", () => current?.day && openDay(shiftDay(current.day, 1)));
+  $("day-today").addEventListener("click", () => openDay(today()));
+  $("day-input").addEventListener("change", () => { if (/^\d{4}-\d{2}-\d{2}$/.test($("day-input").value)) openDay($("day-input").value); });
   $("add").addEventListener("click", newNote);
   $("back").addEventListener("click", closeNote);
   $("delete").addEventListener("click", binNote);
@@ -932,6 +1083,7 @@ export async function mount(ctx) {
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
     if (e.key === "Escape" && (drag || !$("folder-menu").hidden)) { e.preventDefault(); endDrag(); closeFolderMenu(); return; }
     if ((e.key === "n" || e.key === "N") && !typing(e)) { e.preventDefault(); newNote(); }
+    if ((e.key === "d" || e.key === "D") && !typing(e)) { e.preventDefault(); openDay(today()); }
     // Escape out of a note goes back to the list on a phone (not lifeOS's wheel).
     if (e.key === "Escape" && current && !typing(e) && $("shell").dataset.view === "note") { e.preventDefault(); closeNote(); }
   });
@@ -946,10 +1098,12 @@ export async function mount(ctx) {
   await load();
   sendLeftovers();
   // Opened at a note (#<id>, from search later on).
+  // …or at a day's note (#day=2026-10-12, or #today), from today.
   const linked = ctx.url.hash.slice(1);
-  if (/^[0-9a-f-]{36}$/i.test(linked)) {
+  const day = linked === "today" ? today() : linked.match(/^day=(\d{4}-\d{2}-\d{2})$/)?.[1];
+  if (/^[0-9a-f-]{36}$/i.test(linked) || day) {
     if (ctx.standalone) history.replaceState(null, "", location.pathname);
-    openNote(linked);
+    if (day) openDay(day); else openNote(linked);
   }
 
   return {
