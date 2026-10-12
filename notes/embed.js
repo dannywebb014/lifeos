@@ -41,6 +41,37 @@ const CHEV = `<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentC
 const PAGE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>`;
 const DAY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`;
 const PIN_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 4 4H6l4-4-1-6zM12 14v6"/></svg>`;
+// Page styles (Style on a note; sql/notes-style.sql): the page colour of the
+// box the note is written in, and the backdrop behind it. Each has an ink, the
+// text colour that reads on it. Saved by name, so a preset can be retuned here.
+const STYLES = {
+  card: {
+    paper: { label: "Paper", bg: "#fffdf8", ink: "#2c2218" },
+    white: { label: "White", bg: "#ffffff", ink: "#22201c" },
+    sand: { label: "Sand", bg: "#f3e9d6", ink: "#3a2e1e" },
+    butter: { label: "Butter", bg: "#faf0c8", ink: "#3b3216" },
+    sage: { label: "Sage", bg: "#e2ebdf", ink: "#22311f" },
+    sky: { label: "Sky", bg: "#e0ebf5", ink: "#1e2e3d" },
+    lavender: { label: "Lavender", bg: "#ebe5f5", ink: "#2b2440" },
+    rose: { label: "Rose", bg: "#f6e2e2", ink: "#3d2222" },
+    charcoal: { label: "Charcoal", bg: "#2a2c30", ink: "#ececea" },
+    midnight: { label: "Midnight", bg: "#1c2434", ink: "#e5eaf4" },
+    forest: { label: "Forest", bg: "#1e2b23", ink: "#e2ede5" },
+  },
+  backdrop: {
+    lake: { label: "Lake", css: "linear-gradient(180deg, #23406e 0%, #3a6a9f 55%, #5b9cc4 100%)", ink: "#f4f8fc" },
+    ocean: { label: "Ocean", css: "linear-gradient(160deg, #1d3a6e 0%, #2b5aa0 50%, #79b0de 100%)", ink: "#f4f8fc" },
+    aurora: { label: "Aurora", css: "linear-gradient(160deg, #0f2a3a 0%, #16575a 45%, #6fcfa6 100%)", ink: "#f0faf5" },
+    forest: { label: "Forest", css: "linear-gradient(160deg, #1d3a2b 0%, #3c6a4e 60%, #9cc4a0 100%)", ink: "#f2f8f3" },
+    dusk: { label: "Dusk", css: "linear-gradient(160deg, #2a1c49 0%, #6a3c79 55%, #e3898a 100%)", ink: "#fbf3f6" },
+    night: { label: "Night", css: "linear-gradient(180deg, #11141c 0%, #1f2638 60%, #2f3a55 100%)", ink: "#eef1f7" },
+    sunset: { label: "Sunset", css: "linear-gradient(160deg, #ff9b76 0%, #fbcf7d 60%, #fbe8c3 100%)", ink: "#3a2416" },
+    dawn: { label: "Dawn", css: "linear-gradient(160deg, #f9cfc0 0%, #f5e5c6 55%, #d6e2f1 100%)", ink: "#33281f" },
+    meadow: { label: "Meadow", css: "linear-gradient(160deg, #d9ebc9 0%, #eef3d8 55%, #cfe6e0 100%)", ink: "#25321f" },
+    mist: { label: "Mist", css: "linear-gradient(160deg, #dde5eb 0%, #eef1f4 50%, #e3dfec 100%)", ink: "#2a2e36" },
+    stone: { label: "Stone", css: "#d8d2c6", ink: "#2c2720" },
+  },
+};
 const pad2 = (n) => String(n).padStart(2, "0");
 const isoDay = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const today = () => isoDay(new Date());
@@ -164,8 +195,10 @@ export async function mount(ctx) {
   async function push(e) {
     if (e.isNew) {
       const { data, error } = await supabase.from("notes")
-        .insert({ id: e.id, space: e.space, parent_id: e.parent ?? null, household_id: e.day ? null : await householdFor(e.space), title: e.title, body: e.body, body_text: e.body_text, ...(e.day ? { day: e.day } : {}) })
+        .insert({ id: e.id, space: e.space, parent_id: e.parent ?? null, household_id: e.day ? null : await householdFor(e.space), title: e.title, body: e.body, body_text: e.body_text, ...(e.day ? { day: e.day } : {}), ...(e.style ? { style: e.style } : {}) })
         .select(listColumns).single();
+      // Page styles not set up yet (notes-style.sql): saved without its style.
+      if (error?.code === "42703" && /style/.test(error.message)) { styleMissing(); return push({ ...e, style: null }); }
       // That day's note was started on another device: theirs stays, this
       // one is kept beside it as an ordinary note.
       if (error?.code === "23505" && /per_day/.test(error.message)) {
@@ -194,7 +227,7 @@ export async function mount(ctx) {
   }
 
   // ─── The open note ────────────────────────────────────────────────
-  let current = null;   // { id, isNew, base, space, parent, day }
+  let current = null;   // { id, isNew, base, space, parent, day, style }
   let editor = null;
   let dirty = false, saving = null, saveTimer = 0, retryTimer = 0;
 
@@ -203,7 +236,7 @@ export async function mount(ctx) {
     $("status").classList.toggle("warn", warn);
   }
   function entryNow() {
-    return { id: current.id, isNew: current.isNew, base: current.base, space: current.space, parent: current.parent, day: current.day || null,
+    return { id: current.id, isNew: current.isNew, base: current.base, space: current.space, parent: current.parent, day: current.day || null, style: current.style || null,
       title: $("title").value.trim(), body: editor.getJSON(), body_text: editor.getText({ blockSeparator: "\n" }).trim() };
   }
   function changed() {
@@ -308,7 +341,8 @@ export async function mount(ctx) {
 
   function showNote(row, { focus = false } = {}) {
     const parent = liveFolder(row.parent_id ?? row.parent)?.id ?? null;
-    current = { id: row.id, isNew: Boolean(row.isNew), base: row.updated_at || null, space: row.space, parent, day: row.day || null };
+    current = { id: row.id, isNew: Boolean(row.isNew), base: row.updated_at || null, space: row.space, parent, day: row.day || null, style: row.style || null };
+    applyStyle(current.style);
     dirty = false;
     // The sidebar shows where the note lives, its folders open.
     if (!current.day) { goTo(row.space, parent); for (const f of pathTo(parent)) setOpen(f.id, true); }
@@ -368,6 +402,8 @@ export async function mount(ctx) {
     stopMic();
     await saveNow();
     current = null;
+    applyStyle(null);
+    closeStyle();
     editor?.destroy(); editor = null;
     $("note").hidden = true;
     $("empty").hidden = false;
@@ -447,6 +483,68 @@ export async function mount(ctx) {
     }
     return data;
   }
+
+  // ─── Page styles ──────────────────────────────────────────────────
+  function applyStyle(style) {
+    const card = STYLES.card[style?.card], bd = STYLES.backdrop[style?.backdrop];
+    const box = $("editor").closest(".card");
+    box.classList.toggle("styled", Boolean(card));
+    box.style.setProperty("--card-bg", card?.bg || "");
+    box.style.setProperty("--card-ink", card?.ink || "");
+    const page = document.body;
+    page.classList.toggle("backdrop", Boolean(bd));
+    page.style.setProperty("--bd", bd?.css || "");
+    page.style.setProperty("--bd-ink", bd?.ink || "");
+  }
+  let warnedStyle = false;
+  function styleMissing() {
+    if (warnedStyle) return;
+    warnedStyle = true;
+    toast("Page styles aren’t set up yet: run lifeos/sql/notes-style.sql in Supabase.", { err: true });
+  }
+  async function setStyle(patchStyle) {
+    if (!current) return;
+    const before = current.style;
+    const next = { ...(current.style || {}), ...patchStyle };
+    for (const k of Object.keys(next)) if (!next[k]) delete next[k];
+    current.style = Object.keys(next).length ? next : null;
+    applyStyle(current.style);
+    paintStyle();
+    // Not saved yet: it goes in with the note's first save.
+    if (current.isNew && !byId(current.id)) { if (dirty) keepUnsaved(entryNow()); return; }
+    await saveNow();
+    try { await patch([current.id], { style: current.style }); }
+    catch (err) {
+      if (err.code === "42703") styleMissing();
+      else toast(`Couldn’t change the style: ${err.message}`, { err: true });
+      current.style = before; applyStyle(before); paintStyle();
+    }
+  }
+  function paintStyle() {
+    const on = current?.style || {};
+    const sw = (kind, key, p) => `<button type="button" class="swatch${key ? "" : " none"}" data-kind="${kind}" data-key="${key || ""}" aria-pressed="${(on[kind] || "") === (key || "")}"
+      title="${p ? p.label : "None"}" aria-label="${p ? p.label : "None"}"${p ? ` style="background:${kind === "card" ? p.bg : p.css}"` : ""}></button>`;
+    $("card-swatches").innerHTML = sw("card", null) + Object.entries(STYLES.card).map(([k, p]) => sw("card", k, p)).join("");
+    $("backdrop-swatches").innerHTML = sw("backdrop", null) + Object.entries(STYLES.backdrop).map(([k, p]) => sw("backdrop", k, p)).join("");
+  }
+  function openStyle() {
+    const pop = $("style-pop"), btn = $("style-btn");
+    paintStyle();
+    pop.hidden = false;
+    const r = btn.getBoundingClientRect(), page = document.body.getBoundingClientRect();
+    pop.style.left = `${Math.max(8, Math.min(r.right - page.left - pop.offsetWidth, page.width - pop.offsetWidth - 8))}px`;
+    pop.style.top = `${r.bottom - page.top + 6}px`;
+    pop.querySelector('[aria-pressed="true"]')?.focus();
+  }
+  function closeStyle() { $("style-pop").hidden = true; }
+  $("style-btn").addEventListener("click", () => ($("style-pop").hidden ? openStyle() : closeStyle()));
+  $("style-pop").addEventListener("click", (e) => {
+    const b = e.target.closest(".swatch");
+    if (b) setStyle({ [b.dataset.kind]: b.dataset.key || null });
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!$("style-pop").hidden && !e.target.closest("#style-pop, #style-btn")) closeStyle();
+  });
 
   // ─── Pinning ──────────────────────────────────────────────────────
   function paintPin() {
@@ -1081,7 +1179,7 @@ export async function mount(ctx) {
   const typing = (e) => e.target.closest?.("input, textarea, select, [contenteditable]");
   document.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
-    if (e.key === "Escape" && (drag || !$("folder-menu").hidden)) { e.preventDefault(); endDrag(); closeFolderMenu(); return; }
+    if (e.key === "Escape" && (drag || !$("folder-menu").hidden || !$("style-pop").hidden)) { e.preventDefault(); endDrag(); closeFolderMenu(); closeStyle(); return; }
     if ((e.key === "n" || e.key === "N") && !typing(e)) { e.preventDefault(); newNote(); }
     if ((e.key === "d" || e.key === "D") && !typing(e)) { e.preventDefault(); openDay(today()); }
     // Escape out of a note goes back to the list on a phone (not lifeOS's wheel).
