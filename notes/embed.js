@@ -439,6 +439,8 @@ export async function mount(ctx) {
       editorProps: { attributes: { "aria-label": "Note", autocapitalize: "sentences", spellcheck: "true" } },
       onUpdate: changed,
       onTransaction: paintToolbar,
+      onBlur: () => setTimeout(placeBubble, 120),
+      onFocus: () => setTimeout(placeBubble, 0),
     });
     paintToolbar();
   }
@@ -520,6 +522,7 @@ export async function mount(ctx) {
     current = null;
     showLook();
     closeStyle();
+    $("bubble").hidden = true;
     editor?.destroy(); editor = null;
     $("note").hidden = true;
     $("empty").hidden = false;
@@ -848,16 +851,52 @@ export async function mount(ctx) {
       ${has ? `<button type="button" class="chip-btn" data-look="clear">Clear ${esc(label)}’s ${mode} look</button>` : ""}</div>`;
   }
   // ─── Block colours (the toolbar's paint pot) ──────────────────────
-  function openBlockColours() {
+  function openBlockColours(from = $("color-btn")) {
     const pop = $("block-pop");
     pop.innerHTML = `<button type="button" class="none" data-colour="" title="No colour" aria-label="No colour"></button>` +
       BLOCK_COLOURS.map(([k, c]) => `<button type="button" data-colour="${k}" style="background:${c}" title="${k}" aria-label="${k}"></button>`).join("");
     pop.hidden = false;
-    const r = $("color-btn").getBoundingClientRect(), page = document.body.getBoundingClientRect();
+    const r = from.getBoundingClientRect(), page = document.body.getBoundingClientRect();
     pop.style.left = `${Math.max(8, Math.min(r.left - page.left, page.width - pop.offsetWidth - 8))}px`;
     pop.style.top = `${r.bottom - page.top + 6}px`;
   }
   function closeBlockColours() { $("block-pop").hidden = true; }
+
+  // ─── The formatting bar (Aa) and the bar over a selection ─────────
+  const TOOLS_KEY = "notes.tools";
+  function showTools(on) {
+    $("editor").closest(".card").classList.toggle("tools", on);
+    $("format-btn").setAttribute("aria-pressed", String(on));
+    writeJSON(TOOLS_KEY, on);
+  }
+  showTools(Boolean(readJSON(TOOLS_KEY, false)));
+  $("format-btn").addEventListener("click", () => showTools(!$("editor").closest(".card").classList.contains("tools")));
+  // Over the selected words (under them on a touch screen, where the
+  // phone's own copy/paste menu sits above); hidden with nothing selected.
+  const touchScreen = matchMedia("(hover: none)");
+  function placeBubble() {
+    const bubble = $("bubble");
+    const sel = editor?.state.selection;
+    // Where the focus really is: WebKit can report a blur inside the app's
+    // shadow root that didn't happen.
+    const focused = editor && (root.activeElement === editor.view.dom || editor.view.dom.contains(root.activeElement));
+    const show = focused && sel && !sel.empty && !sel.node && !editor.isActive("codeBlock");
+    if (!show) { bubble.hidden = true; return; }
+    bubble.hidden = false;
+    const start = editor.view.coordsAtPos(sel.from), end = editor.view.coordsAtPos(sel.to), page = document.body.getBoundingClientRect();
+    const mid = (Math.min(start.left, end.left) + Math.max(start.right, end.right)) / 2;
+    const left = Math.max(8, Math.min(mid - page.left - bubble.offsetWidth / 2, page.width - bubble.offsetWidth - 8));
+    const top = touchScreen.matches ? end.bottom - page.top + 10 : Math.min(start.top, end.top) - page.top - bubble.offsetHeight - 8;
+    bubble.style.left = `${left}px`;
+    bubble.style.top = `${Math.max(4, top)}px`;
+  }
+  // A selection made or changed without a transaction (the phone's handles) is seen too.
+  document.addEventListener("selectionchange", () => { if (editor) requestAnimationFrame(placeBubble); });
+  $("bubble").addEventListener("pointerdown", (e) => e.preventDefault());   // keep the selection
+  $("bubble").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-cmd]");
+    if (b && editor) COMMANDS[b.dataset.cmd].run(b);
+  });
   $("block-pop").addEventListener("pointerdown", (e) => e.preventDefault());   // keep the note's selection
   $("block-pop").addEventListener("click", (e) => {
     const b = e.target.closest("[data-colour]");
@@ -919,6 +958,8 @@ export async function mount(ctx) {
   function openNoteMenu() {
     const m = $("note-menu");
     m.querySelector('[data-act="icon"]').hidden = Boolean(current?.day);
+    m.querySelector('[data-act="pin"]').hidden = m.querySelector('[data-act="move"]').hidden = Boolean(current?.day);
+    m.querySelector('[data-act="pin"]').textContent = byId(current?.id)?.pinned ? "Unpin" : "Pin to the top";
     m.hidden = false;
     const r = $("note-more").getBoundingClientRect(), page = document.body.getBoundingClientRect();
     m.style.left = `${Math.max(8, Math.min(r.right - page.left - m.offsetWidth, page.width - m.offsetWidth - 8))}px`;
@@ -931,6 +972,8 @@ export async function mount(ctx) {
     if (!act || !current) return;
     closeNoteMenu();
     if (act === "icon") openEmoji(current.id, $("icon-btn"));
+    else if (act === "pin") togglePin(current.id);
+    else if (act === "move") openMove(current.id);
     else if (act === "template") saveAsTemplate();
     else downloadMarkdown();
   });
@@ -1451,17 +1494,20 @@ export async function mount(ctx) {
     h2: { run: () => chain().toggleHeading({ level: 2 }).run(), on: () => editor.isActive("heading", { level: 2 }) },
     bold: { run: () => chain().toggleBold().run(), on: () => editor.isActive("bold") },
     italic: { run: () => chain().toggleItalic().run(), on: () => editor.isActive("italic") },
+    strike: { run: () => chain().toggleStrike().run(), on: () => editor.isActive("strike") },
+    icode: { run: () => chain().toggleCode().run(), on: () => editor.isActive("code") },
     checks: { run: () => chain().toggleTaskList().run(), on: () => editor.isActive("taskList") },
     bullets: { run: () => chain().toggleBulletList().run(), on: () => editor.isActive("bulletList") },
     numbers: { run: () => chain().toggleOrderedList().run(), on: () => editor.isActive("orderedList") },
     mic: { run: () => toggleMic() },
-    color: { run: () => ($("block-pop").hidden ? openBlockColours() : closeBlockColours()) },
+    color: { run: (b) => ($("block-pop").hidden ? openBlockColours(b) : closeBlockColours()) },
     undo: { run: () => chain().undo().run(), can: () => editor.can().undo() },
     redo: { run: () => chain().redo().run(), can: () => editor.can().redo() },
   };
   function paintToolbar() {
     if (!editor) return;
-    for (const b of $("toolbar").querySelectorAll("button[data-cmd]")) {
+    placeBubble();
+    for (const b of root.querySelectorAll("#toolbar button[data-cmd], #bubble button[data-cmd]")) {
       const c = COMMANDS[b.dataset.cmd];
       if (c.on) b.setAttribute("aria-pressed", String(c.on()));
       if (c.can) b.disabled = !c.can();
@@ -1561,7 +1607,7 @@ export async function mount(ctx) {
   $("toolbar").addEventListener("pointerdown", (e) => { if (e.target.closest("button")) e.preventDefault(); });
   $("toolbar").addEventListener("click", (e) => {
     const b = e.target.closest("button[data-cmd]");
-    if (b && editor) COMMANDS[b.dataset.cmd].run();
+    if (b && editor) COMMANDS[b.dataset.cmd].run(b);
   });
 
   function sizeTitle() { const t = $("title"); t.style.height = "auto"; t.style.height = `${t.scrollHeight}px`; }

@@ -56,6 +56,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg><span id="back-label">notes</span>
           </button>
           <span class="status" id="status" role="status" aria-live="polite"></span>
+          <button type="button" class="icon-btn" id="format-btn" aria-label="Formatting bar" title="Formatting bar" aria-pressed="false"><span class="aa">Aa</span></button>
           <button type="button" class="icon-btn" id="style-btn" aria-label="Page style" title="Page style" aria-haspopup="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-.9-.6-1.3-.6-2.1 0-.9.7-1.6 1.6-1.6H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="10" cy="7" r="1.2" fill="currentColor"/><circle cx="15" cy="7.5" r="1.2" fill="currentColor"/></svg>
           </button>
@@ -85,10 +86,6 @@
             <input type="date" id="day-input">
           </label>
           <button type="button" class="small-btn" id="day-today">Today</button>
-        </div>
-        <div class="title-row">
-          <button type="button" class="icon-pick" id="icon-btn" aria-label="Choose an icon" title="Icon"><span id="icon-show"></span></button>
-          <textarea id="title" class="title" rows="1" placeholder="Untitled" aria-label="Title" autocapitalize="sentences"></textarea>
         </div>
         <div class="card">
           <div class="toolbar" id="toolbar" role="toolbar" aria-label="Formatting">
@@ -120,6 +117,10 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg>
             </button>
           </div>
+          <div class="title-row">
+            <button type="button" class="icon-pick" id="icon-btn" aria-label="Choose an icon" title="Icon"><span id="icon-show"></span></button>
+            <textarea id="title" class="title" rows="1" placeholder="Untitled" aria-label="Title" autocapitalize="sentences"></textarea>
+            </div>
           <p class="interim" id="interim" hidden></p>
           <div id="editor" class="editor"></div>
         </div>
@@ -141,8 +142,27 @@
     <button type="button" role="menuitem" data-act="delete" class="danger">Delete folder</button>
   </div>
   <div class="ghost-drag" id="ghost" aria-hidden="true" hidden></div>
+  <div class="bubble" id="bubble" role="toolbar" aria-label="Format the selection" hidden>
+    <button type="button" data-cmd="bold" aria-label="Bold" title="Bold (⌘B)"><b>B</b></button>
+    <button type="button" data-cmd="italic" aria-label="Italic" title="Italic (⌘I)"><i>I</i></button>
+    <button type="button" data-cmd="strike" aria-label="Strikethrough" title="Strikethrough"><s>S</s></button>
+    <button type="button" data-cmd="icode" aria-label="Code" title="Code">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4M16 8l4 4-4 4"/></svg>
+    </button>
+    <span class="sep" aria-hidden="true"></span>
+    <button type="button" data-cmd="h1" aria-label="Heading" title="Heading">H1</button>
+    <button type="button" data-cmd="h2" aria-label="Smaller heading" title="Smaller heading">H2</button>
+    <button type="button" data-cmd="checks" aria-label="Checklist" title="Checklist">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="6" rx="1.5"/><path d="m4.5 7 1 1 2-2"/><rect x="3" y="14" width="6" height="6" rx="1.5"/><path d="M13 7h8M13 17h8"/></svg>
+    </button>
+    <button type="button" data-cmd="color" aria-label="Block colour" title="Block colour">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m19 11-8-8-8.5 8.5a2.1 2.1 0 0 0 0 3L7 19a2.1 2.1 0 0 0 3 0z"/><path d="M5 2l5 5M2 13h15M22 20a2 2 0 1 1-4 0c0-1.6 2-3 2-3s2 1.4 2 3z"/></svg>
+    </button>
+  </div>
   <div class="menu" id="note-menu" role="menu" hidden>
     <button type="button" role="menuitem" data-act="icon">Icon…</button>
+    <button type="button" role="menuitem" data-act="pin">Pin to the top</button>
+    <button type="button" role="menuitem" data-act="move">Move…</button>
     <button type="button" role="menuitem" data-act="template">Save as a template…</button>
     <button type="button" role="menuitem" data-act="markdown">Download as Markdown</button>
   </div>

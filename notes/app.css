@@ -7,6 +7,7 @@
       --bg:#EEF0F2; --surface:#fffdf8; --input:#f0ece3; --hover:#f6f4ee; --line:#e2e0d8; --line-strong:#d6d3c8;
       --text:#2c2218; --muted:#6b6055; --dim:#a8a295; --danger:#b54e4e;
       --side-bg:#e6e9ed; --row-hover:rgba(44,34,24,.06);
+      --menu-bg:#fffdf8; --menu-ink:#2c2218; --menu-dim:#a8a295; --menu-hover:#f2eee5; --menu-line:#e2e0d8; --menu-accent:#5b6b82;
       --logo:#3f4a5c; --accent:#5b6b82; --accent-soft:#5b6b8218; --on-accent:#fff;
       --green:#3f7a4a; --red:#b5443c; --red-soft:#b5443c14;
       --shadow:0 1px 3px rgba(44,34,24,.06); --shadow-lg:0 18px 50px rgba(44,34,24,.18); --glow:0;
@@ -19,6 +20,7 @@
         --bg:#1a1e1a; --surface:#232823; --input:#2e342e; --hover:#2a302a; --line:#3a423a; --line-strong:#434b43;
         --text:#ebe8de; --muted:#a8a89c; --dim:#6b7568; --danger:#c96b6b;
         --side-bg:#1f2420; --row-hover:rgba(235,232,222,.06);
+        --menu-bg:#232823; --menu-ink:#ebe8de; --menu-dim:#6b7568; --menu-hover:#2e342e; --menu-line:#3a423a; --menu-accent:#8fa1ba;
         --logo:#c3cddb; --accent:#8fa1ba; --accent-soft:#8fa1ba22; --on-accent:#1a1e1a;
         --green:#7cc48a; --red:#e8907f; --red-soft:#e8907f1c;
         --shadow:0 1px 4px rgba(0,0,0,.35); --shadow-lg:0 18px 50px rgba(0,0,0,.5); --glow:.18;
@@ -38,7 +40,28 @@
     .logo { font-family:var(--disp); font-style:var(--hub-logo-style, italic); font-weight:600; font-size:2.2rem; letter-spacing:-.03em; line-height:1; color:var(--logo); margin:0; }
     .logo .dot { font-style:normal; color:var(--accent); }
     .note { margin:0; color:var(--muted); font-size:.95rem; }
-    .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+    .card { background:var(--surface); border:1px solid color-mix(in srgb, var(--text) 9%, transparent); border-radius:14px;
+      box-shadow:0 1px 2px rgba(0,0,0,.05), 0 8px 28px rgba(20,24,40,.09); }
+    .page.backdrop .card { box-shadow:0 1px 2px rgba(0,0,0,.08), 0 14px 44px rgba(0,0,0,.24); }
+    .card .title-row { --title-x:20px; padding:30px 18px 0; }
+    .card .title { font-size:1.75rem; }
+    @media (min-width: 900px) { .card .title-row { --title-x:52px; padding:44px 50px 0; } .card .title { font-size:2rem; } .card .editor { padding:10px 52px 48px; } }
+    /* A phone's note bar: pin and move live in ⋯; the space name stays on one line. */
+    .back span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px; }
+    @media (max-width: 899px) { #pin, #move { display:none; } .note-bar .icon-btn { width:36px; } }
+    @media (min-width: 900px) { #note-menu [data-act="pin"], #note-menu [data-act="move"] { display:none; } }
+    /* The formatting bar shows only when Aa is on. */
+    .card:not(.tools) .toolbar { display:none; }
+    #format-btn .aa { font-family:var(--disp); font-weight:600; font-size:1.02rem; }
+    #format-btn[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent); }
+    /* Selecting text: a small bar over it. */
+    .bubble { position:absolute; z-index:45; display:flex; align-items:center; gap:1px; padding:4px; border-radius:11px;
+      background:#25272c; color:#f1f1ef; box-shadow:0 8px 24px rgba(0,0,0,.28); }
+    .bubble button { min-width:32px; height:32px; border:0; border-radius:7px; background:none; color:inherit; display:grid; place-items:center; font-weight:700; font-size:.88rem; padding:0 6px; }
+    .bubble button svg { width:17px; height:17px; }
+    .bubble button:hover { background:rgba(255,255,255,.1); }
+    .bubble button[aria-pressed="true"] { background:rgba(255,255,255,.2); }
+    .bubble .sep { width:1px; height:18px; background:rgba(255,255,255,.2); margin:0 3px; }
     .icon-btn { flex:none; width:40px; height:40px; border:0; border-radius:10px; background:none; color:var(--muted); display:grid; place-items:center; }
     .icon-btn svg { width:21px; height:21px; }
     .icon-btn:hover { background:var(--hover); color:var(--text); }
@@ -96,8 +119,11 @@
     .space-btn svg { flex:none; width:16px; height:16px; color:var(--muted); transition:transform .12s; }
     .space-btn[aria-expanded="true"] svg { transform:rotate(180deg); }
     .space-btn.drop { outline:2px solid var(--accent); outline-offset:1px; }
+    /* Solid whatever the sidebar's wearing, so nothing shows through it. */
     .space-menu { position:absolute; z-index:35; top:calc(100% + 4px); left:0; right:0; display:grid; gap:1px; padding:5px; max-height:min(60vh, 360px); overflow-y:auto;
-      background:var(--surface); border:1px solid var(--line-strong); border-radius:12px; box-shadow:var(--shadow-lg); }
+      --text:var(--menu-ink); --dim:var(--menu-dim); --row-hover:var(--menu-hover); --line:var(--menu-line); --accent:var(--menu-accent);
+      --accent-soft:color-mix(in srgb, var(--menu-accent) 16%, transparent);
+      background:var(--menu-bg); color:var(--menu-ink); border:1px solid var(--menu-line); border-radius:12px; box-shadow:var(--shadow-lg); }
     .space-menu #tabs { display:grid; gap:1px; }
     .space-menu .tab { display:flex; align-items:center; width:100%; border:0; border-radius:8px; background:none; color:var(--text); text-align:left;
       padding:7px 10px; min-height:36px; font-weight:500; font-size:.95rem; }
@@ -182,8 +208,11 @@
     .title-row .title { flex:1; min-width:0; }
     .icon-pick { flex:none; width:44px; height:44px; margin-top:-2px; border:0; border-radius:10px; background:none; font-size:1.9rem; line-height:1; display:grid; place-items:center; padding:0; }
     .icon-pick:hover { background:var(--hover); }
-    .icon-pick.empty { width:28px; color:var(--dim); font-size:1.1rem; opacity:0; transition:opacity .12s; }
-    .icon-pick.empty::before { content:"☺"; }
+    /* No icon yet: a small "Add icon" above the title (as in Craft), so the title lines up with the text. */
+    .title-row { position:relative; }
+    .icon-pick.empty { position:absolute; left:calc(var(--title-x, 20px) - 4px); top:4px; width:auto; height:24px; margin:0; padding:0 6px; border-radius:6px;
+      color:var(--dim); font-family:var(--body); font-size:.8rem; font-weight:600; opacity:0; transition:opacity .12s; }
+    .icon-pick.empty::before { content:"☺ Add icon"; }
     #note:hover .icon-pick.empty, .icon-pick.empty:focus-visible { opacity:1; }
     @media (hover: none) { .icon-pick.empty { opacity:.6; } }
     .node .ic.emoji { display:grid; place-items:center; font-size:15px; line-height:1; width:18px; }
@@ -226,7 +255,7 @@
 
     /* The note itself. TipTap's own stylesheet goes in the main page, not
        here, so the few rules ProseMirror needs are repeated below. */
-    .editor { padding:14px 18px 22px; min-height:260px; }
+    .editor { padding:8px 20px 28px; min-height:260px; }
     .ProseMirror { outline:none; min-height:220px; white-space:pre-wrap; word-wrap:break-word; -webkit-font-variant-ligatures:none; font-variant-ligatures:none; font-feature-settings:"liga" 0; font-size:17px; line-height:1.55; caret-color:var(--accent); }
     .ProseMirror [contenteditable="false"] { white-space:normal; }
     .ProseMirror pre { white-space:pre-wrap; }
@@ -339,8 +368,7 @@
     .card.styled .ProseMirror a { color:inherit; text-decoration:underline; }
     .card.styled .toolbar button[aria-pressed="true"] { color:var(--card-ink); }
     .page.backdrop .glow { display:none; }
-    .page.backdrop .title, .page.backdrop .day-title { color:var(--bd-ink); }
-    .page.backdrop .title::placeholder { color:color-mix(in srgb, var(--bd-ink) 55%, transparent); }
+    .page.backdrop .day-title { color:var(--bd-ink); }
     .page.backdrop .note-bar .icon-btn, .page.backdrop .day-bar .icon-btn, .page.backdrop .back, .page.backdrop .status, .page.backdrop .hint, .page.backdrop .day-pick { color:color-mix(in srgb, var(--bd-ink) 80%, transparent); }
     .page.backdrop .note-bar .icon-btn:hover, .page.backdrop .day-bar .icon-btn:hover, .page.backdrop .day-pick:hover { background:color-mix(in srgb, var(--bd-ink) 12%, transparent); color:var(--bd-ink); }
     @media (max-width: 899px) { .page.backdrop:has(.shell[data-view="note"]) { background:var(--bd); background-attachment:fixed; } }
