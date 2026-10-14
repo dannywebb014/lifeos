@@ -82,6 +82,14 @@ const NoteTaskItem = TaskItem.extend({
   },
 });
 
+// ⌘↵ ticks or unticks the task the cursor is on, as in Craft.
+const TaskKeys = Extension.create({
+  name: "taskKeys",
+  addKeyboardShortcuts() {
+    return { "Mod-Enter": () => this.editor.isActive("taskItem") && this.editor.commands.updateAttributes("taskItem", { checked: !this.editor.getAttributes("taskItem").checked }) };
+  },
+});
+
 // The spaces: my, work and joint (shared with the household) are always
 // there and can be renamed; more can be added (Spaces, the gear), private to
 // whoever adds them (sql/notes-spaces.sql). Kept per person in app_state
@@ -104,7 +112,6 @@ const SIDE_KEY = "notes.sideWidth";  // the sidebar's width, dragged by its edge
 const SIDE_OFF_KEY = "notes.sideOff"; // the sidebar folded away (⌘S)
 const SIDE_WIDTH = 272;
 const LONG_PRESS = 350;              // ms held on a touch screen before dragging starts
-const CHEV = `<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
 const PAGE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>`;
 const DAY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>`;
 const PIN_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 4 4H6l4-4-1-6zM12 14v6"/></svg>`;
@@ -157,6 +164,8 @@ const ownLook = (style) => Boolean(style && Object.keys(style).some(k => k !== "
 const lookOnly = (style) => { if (!style) return null; const { icon, ...rest } = style; void icon; return Object.keys(rest).length ? rest : null; };
 const DOTS = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>`;
 const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+// An open folder (the sidebar has no arrows: the folder itself shows open or shut).
+const FOLDER_OPEN_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18V7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1"/><path d="M3 18l2.6-6.3A2 2 0 0 1 7.5 10.5H21l-2.7 7A2 2 0 0 1 16.4 19H4a1 1 0 0 1-1-1z"/></svg>`;
 
 // The / menu: every kind of block, with words it can be found by.
 const BLOCKS = [
@@ -434,15 +443,26 @@ export async function mount(ctx) {
         Placeholder.configure({ placeholder: "Write something, or type / for more" }),
         Slash,
         BlockColour,
+        TaskKeys,
       ],
       content: content || "",
-      editorProps: { attributes: { "aria-label": "Note", autocapitalize: "sentences", spellcheck: "true" } },
+      editorProps: { attributes: { "aria-label": "Note", autocapitalize: "sentences", spellcheck: "true" }, handleTextInput: startTask },
       onUpdate: changed,
       onTransaction: paintToolbar,
       onBlur: () => setTimeout(placeBubble, 120),
       onFocus: () => setTimeout(placeBubble, 0),
     });
     paintToolbar();
+  }
+
+  // As in Craft: "x" then a space at the start of a line makes it a task
+  // (iPhone's capital X too). Lines already in a list are left alone.
+  function startTask(view, from, to, text) {
+    if (text !== " " || from !== to) return false;
+    const $from = view.state.doc.resolve(from);
+    if ($from.parent.type.name !== "paragraph" || !/^x$/i.test($from.parent.textBetween(0, $from.parentOffset))) return false;
+    if (["listItem", "taskItem"].includes($from.node(-1)?.type.name)) return false;
+    return editor.chain().deleteRange({ from: $from.start(), to: from }).toggleTaskList().run();
   }
 
   // TipTap moves the focus a frame later; the note takes it at once, so
@@ -532,8 +552,9 @@ export async function mount(ctx) {
   }
 
   // ─── Bin ──────────────────────────────────────────────────────────
-  async function binNote() {
-    if (!current) return;
+  async function binNote(id = current?.id) {
+    if (!id) return;
+    if (current?.id !== id) return binOther(id);
     const note = current;
     // Never saved: nothing to put in the bin, it just goes.
     if (note.isNew) {
@@ -548,6 +569,15 @@ export async function mount(ctx) {
     mergeRow({ id: note.id, deleted_at: at });
     renderList(); renderBin();
     toast("Moved to the bin.", { action: "Undo", onAction: () => restore(note.id) });
+  }
+  // A note that isn't open (right-click → Delete in the sidebar).
+  async function binOther(id) {
+    const at = new Date().toISOString();
+    const { error } = await supabase.from("notes").update({ deleted_at: at }).eq("id", id);
+    if (error) { toast(`Couldn’t move it to the bin: ${error.message}`, { err: true }); console.error("notes.: bin failed:", error.message); return; }
+    mergeRow({ id, deleted_at: at });
+    renderList(); renderBin();
+    toast("Moved to the bin.", { action: "Undo", onAction: () => restore(id) });
   }
   // What went in the bin together: a note, or a folder and all it held.
   const group = (n) => [n.id, ...descendants(n.id, (m) => m.deleted_at === n.deleted_at)];
@@ -1421,6 +1451,8 @@ export async function mount(ctx) {
 
   // The sidebar: this space as a tree. Folders first, then notes, each A to Z.
   const nameOf = (n) => isFolder(n) ? folderName(n) : naming(n).name || "Untitled";
+  // The open note's icon shows here as soon as it's picked, before it's saved.
+  const rowIcon = (n) => iconOf(current?.id === n.id ? current : n);
   const byName = (a, b) => nameOf(a).localeCompare(nameOf(b), "en-GB", { sensitivity: "base", numeric: true });
   function renderTabs() {
     $("tabs").innerHTML = SPACES.map(x => `<button type="button" class="tab" role="menuitemradio" data-space="${x.id}" aria-pressed="${x.id === space}" aria-checked="${x.id === space}">${esc(x.label)}</button>`).join("");
@@ -1433,12 +1465,12 @@ export async function mount(ctx) {
     if (!ready) { $("tree").innerHTML = ""; return; }
     if (folder && liveFolder(folder)?.space !== space) folder = null;
     const label = SPACES.find(x => x.id === space).label;
-    const rows = [`<div class="node${current?.day === today() ? " sel" : ""}" role="treeitem" tabindex="-1" data-kind="daily" title="Today’s note (D)"><span class="gap"></span><span class="ic" aria-hidden="true">${DAY_ICON}</span><span class="label">today<i>.</i></span></div>`,
+    const rows = [`<div class="node${current?.day === today() ? " sel" : ""}" role="treeitem" tabindex="-1" data-kind="daily" title="Today’s note (D)"><span class="ic" aria-hidden="true">${DAY_ICON}</span><span class="label">today<i>.</i></span></div>`,
       `<div class="tree-line" data-drop="root" title="The top of ${esc(label)}" aria-hidden="true"></div>`];
     const pinned = notes.filter(n => n.pinned && !n.deleted_at && !n.day && n.space === space).sort(byName);
     if (pinned.length) {
       rows.push(`<div class="tree-head" data-drop="pin">Pinned</div>`);
-      for (const n of pinned) rows.push(`<div class="node pinned${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="${isFolder(n) ? "folder" : "page"}" data-pinned><span class="gap"></span>${iconOf(n) ? `<span class="ic emoji" aria-hidden="true">${esc(iconOf(n))}</span>` : `<span class="ic" aria-hidden="true">${isFolder(n) ? FOLDER_ICON : PIN_ICON}</span>`}<span class="label">${esc(nameOf(n))}</span></div>`);
+      for (const n of pinned) rows.push(`<div class="node pinned${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="${isFolder(n) ? "folder" : "page"}" data-pinned>${rowIcon(n) ? `<span class="ic emoji" aria-hidden="true">${esc(rowIcon(n))}</span>` : `<span class="ic" aria-hidden="true">${isFolder(n) ? FOLDER_ICON : PIN_ICON}</span>`}<span class="label">${esc(nameOf(n))}</span></div>`);
       rows.push(`<div class="tree-line" data-drop="root" title="The top of ${esc(label)}" aria-hidden="true"></div>`);
     }
     const walk = (parent, depth) => {
@@ -1447,12 +1479,12 @@ export async function mount(ctx) {
       for (const n of here) {
         if (isFolder(n)) {
           const open = opened.has(n.id);
-          rows.push(`<div class="node${folder === n.id && !current ? " sel" : ""}" role="treeitem" tabindex="-1" aria-expanded="${open}" data-id="${n.id}" data-kind="folder" style="--depth:${depth}">${CHEV}${iconOf(n) ? `<span class="ic emoji" aria-hidden="true">${esc(iconOf(n))}</span>` : `<span class="ic" aria-hidden="true">${FOLDER_ICON}</span>`}<span class="label">${esc(folderName(n))}</span><button type="button" class="more" data-more aria-label="Options for ${esc(folderName(n))}" tabindex="-1">${DOTS}</button></div>`);
+          rows.push(`<div class="node${folder === n.id && !current ? " sel" : ""}" role="treeitem" tabindex="-1" aria-expanded="${open}" data-id="${n.id}" data-kind="folder" style="--depth:${depth}">${iconOf(n) ? `<span class="ic emoji" aria-hidden="true">${esc(iconOf(n))}</span>` : `<span class="ic" aria-hidden="true">${open ? FOLDER_OPEN_ICON : FOLDER_ICON}</span>`}<span class="label">${esc(folderName(n))}</span><button type="button" class="more" data-more aria-label="Options for ${esc(folderName(n))}" tabindex="-1">${DOTS}</button></div>`);
           if (open) walk(n.id, depth + 1);
         } else {
           const { name } = naming(n);
           const only = n.space === "joint" && !n.household_id ? ` title="Only you can see this: you haven’t joined a household"` : "";
-          rows.push(`<div class="node${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="page" style="--depth:${depth}"${only}><span class="gap"></span>${iconOf(n) ? `<span class="ic emoji" aria-hidden="true">${esc(iconOf(n))}</span>` : `<span class="ic" aria-hidden="true">${PAGE_ICON}</span>`}<span class="label${name ? "" : " untitled"}">${esc(name || "Untitled")}</span></div>`);
+          rows.push(`<div class="node${current?.id === n.id ? " sel" : ""}" role="treeitem" tabindex="-1" data-id="${n.id}" data-kind="page" style="--depth:${depth}"${only}>${rowIcon(n) ? `<span class="ic emoji" aria-hidden="true">${esc(rowIcon(n))}</span>` : `<span class="ic" aria-hidden="true">${PAGE_ICON}</span>`}<span class="label${name ? "" : " untitled"}">${esc(name || "Untitled")}</span></div>`);
         }
       }
     };
@@ -1673,16 +1705,22 @@ export async function mount(ctx) {
   }
   $("new-folder").addEventListener("click", () => newFolder());
 
-  // ─── A folder's menu (its ⋯) ──────────────────────────────────────
-  function openFolderMenu(id, from) {
+  // ─── A folder's menu (its ⋯), and a note's (right-click) ───────────
+  // `at` is where a right-click was: the menu opens there.
+  function openFolderMenu(id, from, at) {
     closeFolderMenu();
     const m = $("folder-menu");
+    const page = !isFolder(byId(id));
     m.dataset.id = id;
     m.querySelector('[data-act="pin"]').textContent = byId(id)?.pinned ? "Unpin" : "Pin to the top";
-    const r = from.getBoundingClientRect(), page = document.body.getBoundingClientRect();
+    for (const act of ["note", "folder", "rename"]) m.querySelector(`[data-act="${act}"]`).hidden = page;
+    m.querySelector('[data-act="delete"]').textContent = page ? "Delete note" : "Delete folder";
+    const r = from.getBoundingClientRect(), box = document.body.getBoundingClientRect();
     m.hidden = false;
-    m.style.left = `${Math.max(8, Math.min(r.right - page.left - m.offsetWidth, page.width - m.offsetWidth - 8))}px`;
-    m.style.top = `${r.bottom - page.top + 4}px`;
+    const left = at ? at.x - box.left : r.right - box.left - m.offsetWidth;
+    const top = at ? at.y - box.top : r.bottom - box.top + 4;
+    m.style.left = `${Math.max(8, Math.min(left, box.width - m.offsetWidth - 8))}px`;
+    m.style.top = `${Math.max(8, Math.min(top, box.height - m.offsetHeight - 8))}px`;
     from.closest(".node")?.classList.add("menu-open");
     m.querySelector("button").focus();
   }
@@ -1701,7 +1739,8 @@ export async function mount(ctx) {
     else if (act === "icon") openEmoji(id, $("tree").querySelector(`.node[data-id="${id}"]:not([data-pinned])`) || $("tree"));
     else if (act === "rename") renameFolder(id);
     else if (act === "move") openMove(id);
-    else deleteFolder(id);
+    else if (isFolder(byId(id))) deleteFolder(id);
+    else binNote(id);
   });
   document.addEventListener("pointerdown", (e) => {
     if (!$("folder-menu").hidden && !e.target.closest("#folder-menu, [data-more]")) closeFolderMenu();
@@ -1827,7 +1866,15 @@ export async function mount(ctx) {
   tree.addEventListener("pointercancel", endDrag);
   // Once a drag has started, the finger moves the row, not the page.
   tree.addEventListener("touchmove", (e) => { if (drag?.active) e.preventDefault(); }, { passive: false });
-  tree.addEventListener("contextmenu", (e) => { if (drag) e.preventDefault(); });
+  // Right-click (or ctrl-click) a note or folder: its menu, where the pointer is.
+  tree.addEventListener("contextmenu", (e) => {
+    if (drag?.active) { e.preventDefault(); return; }
+    const node = e.target.closest(".node");
+    if (!node?.dataset.id || !byId(node.dataset.id)) return;
+    e.preventDefault();
+    endDrag();
+    openFolderMenu(node.dataset.id, node, { x: e.clientX, y: e.clientY });
+  });
 
   // ─── Spaces (the gear) ─────────────────────────────────────────────
   let draftSpaces = [];
@@ -1938,7 +1985,7 @@ export async function mount(ctx) {
   $("day-input").addEventListener("change", () => { if (/^\d{4}-\d{2}-\d{2}$/.test($("day-input").value)) openDay($("day-input").value); });
   $("add").addEventListener("click", newNote);
   $("back").addEventListener("click", closeNote);
-  $("delete").addEventListener("click", binNote);
+  $("delete").addEventListener("click", () => binNote());
   $("bin-btn").addEventListener("click", () => showBin($("bin").hidden));
   $("bin-back").addEventListener("click", () => showBin(false));
   $("bin-list").addEventListener("click", (e) => {

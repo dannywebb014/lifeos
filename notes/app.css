@@ -100,7 +100,7 @@
     }
 
     .side { display:grid; grid-template-columns:minmax(0, 1fr); gap:12px; min-width:0; align-content:start; }
-    .side-head { display:flex; align-items:center; gap:4px; padding:0 4px; }
+    .side-head { display:flex; align-items:center; gap:4px; padding:0 0 0 8px; }
     .side-head .logo { flex:1; }
     #lists, #bin { display:grid; grid-template-columns:minmax(0, 1fr); gap:10px; }
     #bin h2 { margin:0; font-family:var(--disp); font-size:1.3rem; font-weight:600; }
@@ -113,7 +113,7 @@
     /* The space picker: the space you're in, and a list of the rest. */
     .space-pick { position:relative; }
     .space-btn { display:flex; align-items:center; gap:8px; width:100%; border:1px solid var(--line); background:var(--surface); color:var(--text);
-      border-radius:10px; padding:7px 10px 7px 12px; min-height:38px; font-weight:600; text-align:left; }
+      border-radius:10px; padding:7px 10px 7px 7px; min-height:38px; font-weight:600; text-align:left; }
     .space-btn:hover { border-color:var(--line-strong); }
     .space-btn .space-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .space-btn svg { flex:none; width:16px; height:16px; color:var(--muted); transition:transform .12s; }
@@ -132,19 +132,16 @@
     .space-menu .tab[aria-pressed="true"]::after { content:"✓"; margin-left:auto; color:var(--accent); }
     .space-menu .tab.drop { outline:2px solid var(--accent); outline-offset:-2px; }
     .space-edit { border:0; border-top:1px solid var(--line); background:none; color:var(--accent); text-align:left; padding:8px 10px 4px; margin-top:3px; font-weight:600; font-size:.88rem; }
-    @media (min-width: 900px) { .side .space-btn { min-height:32px; padding:4px 8px 4px 10px; font-size:.92rem; } .side .space-menu .tab { min-height:30px; padding:5px 10px; font-size:.9rem; } }
+    @media (min-width: 900px) { .side .space-btn { min-height:32px; padding:4px 8px 4px 7px; font-size:.92rem; } .side .space-menu .tab { min-height:30px; padding:5px 10px; font-size:.9rem; } }
 
     /* The tree: slim rows, folders open and shut, what's inside indented. */
     .tree { display:grid; grid-template-columns:minmax(0, 1fr); gap:1px; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
     .tree-head { padding:6px 8px 4px; border-radius:7px; color:var(--dim); font-size:.74rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; }
-    .node { display:flex; align-items:center; gap:6px; min-height:30px; padding:0 4px 0 calc(4px + var(--depth, 0) * 16px); border-radius:7px; cursor:pointer; color:var(--text); font-size:15px; line-height:1.25; }
+    .node { display:flex; align-items:center; gap:6px; min-height:30px; padding:0 4px 0 calc(8px + var(--depth, 0) * 16px); border-radius:7px; cursor:pointer; color:var(--text); font-size:15px; line-height:1.25; }
     .node:hover { background:var(--row-hover); }
     .node:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
     .node.sel { background:var(--accent-soft); }
     .node.sel .label { font-weight:600; }
-    .node .chev { flex:none; width:16px; height:16px; color:var(--dim); transition:transform .12s; }
-    .node[aria-expanded="true"] .chev { transform:rotate(90deg); }
-    .node .gap { flex:none; width:16px; }
     .node .ic { flex:none; width:17px; height:17px; color:var(--muted); }
     .node[data-kind="folder"] .ic { color:var(--accent); }
     .node .label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -153,7 +150,7 @@
     .node .more svg { width:16px; height:16px; }
     .node:hover .more, .node:focus-within .more, .node.menu-open .more { opacity:1; }
     .node .more:hover { background:var(--row-hover); color:var(--text); }
-    .tree-empty { margin:0; padding:4px 8px 4px calc(26px + var(--depth, 0) * 16px); color:var(--dim); font-size:.88rem; }
+    .tree-empty { margin:0; padding:4px 8px 4px calc(31px + var(--depth, 0) * 16px); color:var(--dim); font-size:.88rem; }
     .node.drop, .tree-head.drop { background:var(--accent-soft); box-shadow:inset 0 0 0 1.5px var(--accent); color:var(--text); }
     .node.dragging { opacity:.4; }
     @media (hover: none) {
@@ -161,11 +158,8 @@
       .node .more { opacity:1; }
     }
     .node.pinned .ic svg, .node[data-kind="daily"] .ic { color:var(--accent); }
-    /* today. sits centred above the rest, a faint line below it (also the
+    /* today. sits above the rest, a faint line below it (also the
        place to drop something to move it to the top of the space). */
-    .node[data-kind="daily"] { justify-content:center; padding:0 8px; }
-    .node[data-kind="daily"] .gap { display:none; }
-    .node[data-kind="daily"] .label { flex:none; }
     .tree-line { display:flex; align-items:center; height:15px; margin:3px 8px; border-radius:4px; cursor:pointer; }
     .tree-line::before { content:""; flex:1; height:1px; background:var(--line-strong); }
     .tree-line.drop { background:none; box-shadow:none; }
