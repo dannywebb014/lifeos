@@ -8,13 +8,14 @@ Stage 1: notes in Supabase (`sql/notes.sql`), in the spaces my / work / joint, s
 `/lifeos/vendor/tiptap-3.31.3.js` is TipTap bundled into one file, like supabase-js. To rebuild it (pin every package to the same version):
 
 ```sh
-npm i @tiptap/core@3.31.3 @tiptap/pm@3.31.3 @tiptap/starter-kit@3.31.3 @tiptap/extension-list@3.31.3 @tiptap/extensions@3.31.3 @tiptap/suggestion@3.31.3 esbuild
+npm i @tiptap/core@3.31.3 @tiptap/pm@3.31.3 @tiptap/starter-kit@3.31.3 @tiptap/extension-list@3.31.3 @tiptap/extensions@3.31.3 @tiptap/suggestion@3.31.3 @tiptap/extension-image@3.31.3 esbuild
 # entry.js:
-#   export { Editor, Extension } from "@tiptap/core";
+#   export { Editor, Extension, Node, mergeAttributes } from "@tiptap/core";
 #   export { default as StarterKit } from "@tiptap/starter-kit";
 #   export { TaskList, TaskItem } from "@tiptap/extension-list";
 #   export { Placeholder } from "@tiptap/extensions";
 #   export { Suggestion } from "@tiptap/suggestion";
+#   export { default as Image } from "@tiptap/extension-image";
 npx esbuild entry.js --bundle --format=esm --minify --target=safari15 --legal-comments=eof --outfile=tiptap-3.31.3.js
 ```
 

@@ -6,7 +6,8 @@
 // Covered: headings, paragraphs, bullet / numbered / checklists (nested),
 // quotes, code blocks, dividers, line breaks; bold, italic, strikethrough,
 // inline code and links. Block colours and page styles aren't Markdown, so
-// they're left out; images in imported Markdown are dropped.
+// they're left out; images in imported Markdown are dropped. A picture in a
+// note is written as ![picture](note-images/<its path in the bucket>).
 
 // ─── To Markdown ─────────────────────────────────────────────────────
 function inline(nodes = []) {
@@ -35,6 +36,7 @@ function blocks(nodes = [], indent = "") {
       case "heading": out.push(`${indent}${"#".repeat(Math.min(6, n.attrs?.level || 1))} ${inline(c)}`); break;
       case "paragraph": out.push(`${indent}${inline(c)}`); break;
       case "horizontalRule": out.push(`${indent}---`); break;
+      case "image": out.push(`${indent}![${n.attrs?.alt || "picture"}](${n.attrs?.path ? `note-images/${n.attrs.path}` : n.attrs?.src || ""})`); break;
       case "codeBlock": out.push(`${indent}\`\`\`${n.attrs?.language || ""}\n${c.map(x => x.text || "").join("").split("\n").map(l => indent + l).join("\n")}\n${indent}\`\`\``); break;
       case "blockquote": out.push(blocks(c, "").split("\n").map(l => `${indent}> ${l}`.trimEnd()).join("\n")); break;
       case "bulletList": case "orderedList": case "taskList": {

@@ -443,3 +443,17 @@
     .due-list li.done .due-text { text-decoration:line-through; opacity:.5; }
     @media (pointer: coarse) { .due-list li { padding:8px 0; } .due-tick { width:24px; height:24px; } }
     @media (min-width: 900px) { .due { margin:24px 46px 4px; } }
+
+    /* Pictures in a note: as wide as the page allows, never wider than they are. */
+    .ProseMirror figure.note-img { margin:12px 0; position:relative; }
+    .ProseMirror figure.note-img img { display:block; max-width:100%; max-height:80vh; height:auto; border-radius:8px; cursor:zoom-in; }
+    .ProseMirror figure.note-img.ProseMirror-selectednode img { outline:3px solid var(--accent); outline-offset:2px; }
+    .ProseMirror figure.note-img figcaption:empty { display:none; }
+    .ProseMirror figure.note-img figcaption { margin-top:4px; font-size:.82rem; opacity:.6; }
+    .ProseMirror figure.note-img.uploading img { opacity:.55; }
+    .ProseMirror figure.note-img.broken img { display:none; }
+    .ProseMirror figure.note-img.broken figcaption { padding:18px; border:1px dashed color-mix(in srgb, currentColor 30%, transparent); border-radius:8px; text-align:center; }
+    .viewer { position:fixed; inset:0; z-index:60; display:grid; place-items:center; padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); background:rgba(0,0,0,.86); cursor:zoom-out; }
+    .viewer[hidden] { display:none; }
+    .viewer img { max-width:100%; max-height:100%; border-radius:6px; }
+

@@ -31,7 +31,7 @@
 // when the line changes, so a rename in tasks. stays. Deleting a line
 // deletes its open task; a line whose task was deleted in tasks. is let go
 // (taskId "off") rather than made again.
-import { Editor, Extension, StarterKit, TaskList, TaskItem, Placeholder, Suggestion } from "/lifeos/vendor/tiptap-3.31.3.js?v=2";
+import { Editor, Extension, StarterKit, TaskList, TaskItem, Placeholder, Suggestion, Image } from "/lifeos/vendor/tiptap-3.31.3.js?v=3";
 import { fill, docFor } from "/lifeos/embed.js";
 import { householdId, loadTasks, completeTask, undoComplete } from "/lifeos/shared/hubtasks.js?v=5";
 import * as speech from "/lifeos/shared/speech.js?v=15";
@@ -168,6 +168,7 @@ const FOLDER_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const FOLDER_OPEN_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18V7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v1"/><path d="M3 18l2.6-6.3A2 2 0 0 1 7.5 10.5H21l-2.7 7A2 2 0 0 1 16.4 19H4a1 1 0 0 1-1-1z"/></svg>`;
 
 // The / menu: every kind of block, with words it can be found by.
+const hooks = { pickImages: null };   // set in mount(): Picture opens the file picker
 const BLOCKS = [
   { id: "text", label: "Text", ic: "T", words: "paragraph plain normal", run: (c) => c.setParagraph() },
   { id: "h1", label: "Heading", ic: "H1", words: "h1 title big", run: (c) => c.setHeading({ level: 1 }) },
@@ -179,6 +180,7 @@ const BLOCKS = [
   { id: "quote", label: "Quote", ic: "❝", words: "blockquote", run: (c) => c.toggleBlockquote() },
   { id: "code", label: "Code", ic: "</>", words: "codeblock pre", run: (c) => c.toggleCodeBlock() },
   { id: "divider", label: "Divider", ic: "—", words: "line rule hr separator", run: (c) => c.setHorizontalRule() },
+  { id: "image", label: "Picture", ic: "▣", words: "image photo picture screenshot upload camera", run: (c) => { hooks.pickImages?.(); return c; } },
   ...[["yellow", "Yellow"], ["green", "Green"], ["blue", "Blue"], ["pink", "Pink"], ["purple", "Purple"], ["orange", "Orange"], ["red", "Red"], ["grey", "Grey"]].map(([k, l]) => (
     { id: `c-${k}`, label: `${l} block`, ic: "■", tint: k, words: `colour color highlight block ${k}`, run: (c) => colourBlocks(c, k) })),
   { id: "c-none", label: "No colour", ic: "□", words: "colour color plain clear", run: (c) => colourBlocks(c, null) },
@@ -428,6 +430,144 @@ export async function mount(ctx) {
   }
   const pick = (row) => Object.fromEntries(listColumns.split(",").map(k => [k, row[k]]));
 
+  // ─── Pictures (stage 7; sql/notes-images.sql) ─────────────────────
+  // Kept in the private bucket note-images as <user id>/<note id>/<random>,
+  // shrunk on the device first (2000px on the long side). The note holds only
+  // the path; each picture shows through a link that lasts an hour. Anyone
+  // who can see the note can see its pictures, so a joint note's show for the
+  // household. Added from the toolbar, the / menu, by pasting or by dropping.
+  const BUCKET = "note-images";
+  const previews = new Map();   // path → this device's copy while it uploads
+  const signed = new Map();     // path → { url, until }
+  const uploading = new Set();
+  const imageViews = new Map(); // path → the pictures on screen showing it
+  const make = (tag, cls) => { const el = window.document.createElement(tag); if (cls) el.className = cls; return el; };
+  async function imageUrl(path) {
+    if (previews.has(path)) return previews.get(path);
+    const hit = signed.get(path);
+    if (hit && hit.until > Date.now()) return hit.url;
+    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600);
+    if (error) throw error;
+    signed.set(path, { url: data.signedUrl, until: Date.now() + 50 * 60e3 });
+    return data.signedUrl;
+  }
+  const NoteImage = Image.extend({
+    addAttributes() {
+      return { ...this.parent?.(), path: { default: null, parseHTML: (el) => el.getAttribute("data-path"), renderHTML: (a) => (a.path ? { "data-path": a.path } : {}) } };
+    },
+    addNodeView() {
+      return ({ node }) => {
+        const dom = make("figure", "note-img"), img = make("img"), note = make("figcaption");
+        dom.contentEditable = "false";
+        img.draggable = false;
+        dom.append(img, note);
+        let path = null;
+        const show = (n) => {
+          if (path !== n.attrs.path) {
+            imageViews.get(path)?.delete(show);
+            path = n.attrs.path;
+            if (path) { if (!imageViews.has(path)) imageViews.set(path, new Set()); imageViews.get(path).add(show); }
+          }
+          img.alt = n.attrs.alt || "";
+          dom.classList.toggle("uploading", uploading.has(path));
+          note.textContent = uploading.has(path) ? "Uploading…" : "";
+          const want = path || n.attrs.src;
+          if (dom.dataset.want === want) return;
+          dom.dataset.want = want || "";
+          dom.classList.remove("broken");
+          (path ? imageUrl(path) : Promise.resolve(n.attrs.src)).then((url) => { if (dom.dataset.want === want) img.src = url; })
+            .catch(() => { dom.classList.add("broken"); note.textContent = "This picture couldn’t load."; });
+        };
+        // Picked out already (the first tap or click picks it): this one shows it full size.
+        let wasPicked = false;
+        img.addEventListener("pointerdown", () => { wasPicked = dom.classList.contains("ProseMirror-selectednode"); });
+        img.addEventListener("click", () => { if (wasPicked && img.src) viewImage(img.src); });
+        img.addEventListener("error", () => { if (img.src) { dom.classList.add("broken"); note.textContent = "This picture couldn’t load."; } });
+        show(node);
+        return {
+          dom,
+          update: (n) => { if (n.type.name !== "image") return false; show(n); return true; },
+          destroy: () => imageViews.get(path)?.delete(show),
+        };
+      };
+    },
+  });
+  // An upload finished: its pictures drop the "Uploading…" look.
+  const repaintImage = (path) => { for (const show of imageViews.get(path) || []) show({ attrs: { path, src: null, alt: "" } }); };
+
+  // A photo shrunk to send: 2000px on the long side, JPEG (a small PNG, such
+  // as a screenshot, stays PNG; a GIF is sent as it is, to keep it moving).
+  async function shrink(file) {
+    if (file.type === "image/gif") return file;
+    let bmp;
+    try { bmp = await createImageBitmap(file); } catch { return file; }
+    const scale = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = make("canvas");
+    canvas.width = w; canvas.height = h;
+    const draw = (bg) => { const c = canvas.getContext("2d"); c.clearRect(0, 0, w, h); if (bg) { c.fillStyle = bg; c.fillRect(0, 0, w, h); } c.drawImage(bmp, 0, 0, w, h); };
+    const blob = (type) => new Promise((r) => canvas.toBlob(r, type, 0.85));
+    let out;
+    if (file.type === "image/png") { draw(); out = await blob("image/png"); if (out && out.size > 1.5e6) out = null; }
+    if (!out) { draw("#fff"); out = await blob("image/jpeg"); }
+    bmp.close?.();
+    if (!out) return file;
+    const sendable = ["image/jpeg", "image/png", "image/webp"].includes(file.type);
+    return scale === 1 && sendable && file.size <= out.size ? file : out;
+  }
+
+  let warnedImages = false;
+  async function addImages(files, at = null) {
+    const list = [...(files || [])].filter(f => /^image\//.test(f.type) || /\.(heic|heif)$/i.test(f.name || ""));
+    if (!list.length || !current || !editor) return false;
+    const note = current;
+    // Pictures belong to a saved note.
+    if (note.isNew) { dirty = true; await saveNow(); }
+    if (note.isNew || current !== note) { toast("Couldn’t save the note yet, so the picture didn’t go in.", { err: true }); return true; }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return true;
+    if (at != null) editor.commands.setTextSelection(Math.min(at, editor.state.doc.content.size));
+    for (const file of list) {
+      const blob = await shrink(file);
+      const ext = { "image/png": "png", "image/gif": "gif", "image/webp": "webp" }[blob.type] || "jpg";
+      const path = `${session.user.id}/${note.id}/${crypto.randomUUID()}.${ext}`;
+      previews.set(path, URL.createObjectURL(blob));
+      uploading.add(path);
+      if (current !== note) break;
+      editor.chain().focus().insertContent({ type: "image", attrs: { path } }).run();
+      const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: blob.type || "image/jpeg", cacheControl: "31536000" });
+      uploading.delete(path);
+      if (!error) { repaintImage(path); continue; }
+      console.error("notes.: picture upload failed:", error.message);
+      if (current === note && editor) dropImage(path);
+      if (/bucket not found|not found/i.test(error.message) && !warnedImages) { warnedImages = true; toast("Pictures aren’t set up yet: run lifeos/sql/notes-images.sql in Supabase.", { err: true }); }
+      else toast(`Couldn’t add the picture: ${error.message}`, { err: true });
+      break;
+    }
+    return true;
+  }
+  // Takes out the picture at `path` (an upload that failed), with no undo step.
+  function dropImage(path) {
+    const tr = editor.state.tr;
+    editor.state.doc.descendants((n, pos) => { if (n.type.name === "image" && n.attrs.path === path) tr.delete(tr.mapping.map(pos), tr.mapping.map(pos + n.nodeSize)); });
+    tr.setMeta("addToHistory", false);
+    editor.view.dispatch(tr);
+  }
+  function pickImages() {
+    if (!current) return;
+    $("image-input").value = "";
+    $("image-input").click();
+  }
+  hooks.pickImages = pickImages;
+  $("image-input").addEventListener("change", () => addImages($("image-input").files));
+  // A picture already picked out: a tap or click shows it full size.
+  function viewImage(src) {
+    if (!src) return;
+    $("viewer-img").src = src;
+    $("viewer").hidden = false;
+  }
+  $("viewer").addEventListener("click", () => { $("viewer").hidden = true; $("viewer-img").removeAttribute("src"); });
+
   // A fresh editor for each note, so undo can't reach into the last one.
   function makeEditor(content) {
     editor?.destroy();
@@ -444,9 +584,20 @@ export async function mount(ctx) {
         Slash,
         BlockColour,
         TaskKeys,
+        NoteImage,
       ],
       content: content || "",
-      editorProps: { attributes: { "aria-label": "Note", autocapitalize: "sentences", spellcheck: "true" }, handleTextInput: startTask },
+      editorProps: { attributes: { "aria-label": "Note", autocapitalize: "sentences", spellcheck: "true" }, handleTextInput: startTask,
+        // Pasted or dropped pictures go up to the bucket.
+        handlePaste: (view, event) => { const f = [...(event.clipboardData?.files || [])]; if (!f.some(x => /^image\//.test(x.type))) return false; addImages(f); return true; },
+        handleDrop: (view, event, slice, moved) => {
+          const f = [...(event.dataTransfer?.files || [])];
+          if (moved || !f.some(x => /^image\//.test(x.type))) return false;
+          event.preventDefault();
+          addImages(f, view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? null);
+          return true;
+        },
+      },
       onUpdate: changed,
       onTransaction: paintToolbar,
       onBlur: () => setTimeout(placeBubble, 120),
@@ -658,6 +809,17 @@ export async function mount(ctx) {
     if (error) { toast(`Couldn’t delete it: ${error.message}`, { err: true }); return; }
     notes = notes.filter(m => !ids.includes(m.id));
     renderBin();
+    removeImages(ids);
+  }
+  // A note deleted for good: the pictures you added to it go too.
+  async function removeImages(ids) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    for (const id of ids) {
+      const folder = `${session.user.id}/${id}`;
+      const { data } = await supabase.storage.from(BUCKET).list(folder, { limit: 1000 });
+      if (data?.length) await supabase.storage.from(BUCKET).remove(data.map(f => `${folder}/${f.name}`));
+    }
   }
 
   // ─── Folders ──────────────────────────────────────────────────────
@@ -1591,6 +1753,7 @@ export async function mount(ctx) {
     bullets: { run: () => chain().toggleBulletList().run(), on: () => editor.isActive("bulletList") },
     numbers: { run: () => chain().toggleOrderedList().run(), on: () => editor.isActive("orderedList") },
     mic: { run: () => toggleMic() },
+    image: { run: () => pickImages() },
     color: { run: (b) => ($("block-pop").hidden ? openBlockColours(b) : closeBlockColours()) },
     undo: { run: () => chain().undo().run(), can: () => editor.can().undo() },
     redo: { run: () => chain().redo().run(), can: () => editor.can().redo() },
@@ -2060,6 +2223,8 @@ export async function mount(ctx) {
     const mod = (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
     if (mod && (e.key === "n" || e.key === "N")) { e.preventDefault(); newNote(); return; }
     if (mod && (e.key === "s" || e.key === "S")) { e.preventDefault(); toggleSide(); return; }
+    // A picture shown full size: Escape closes it, whatever has the focus.
+    if (e.key === "Escape" && !$("viewer").hidden) { e.preventDefault(); $("viewer").click(); return; }
     if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
     if (e.key === "Escape" && (drag || !$("folder-menu").hidden || !$("style-pop").hidden || !spaceMenu.hidden || !$("emoji-pop").hidden || !$("note-menu").hidden || !$("tpl-pop").hidden || !$("block-pop").hidden)) {
       e.preventDefault(); endDrag(); closeFolderMenu(); closeStyle(); showSpaces(false); closeEmoji(); closeNoteMenu(); closeTemplates(); closeBlockColours(); return;
