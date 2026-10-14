@@ -121,6 +121,13 @@
             <button type="button" class="icon-pick" id="icon-btn" aria-label="Choose an icon" title="Icon"><span id="icon-show"></span></button>
             <textarea id="title" class="title" rows="1" placeholder="Untitled" aria-label="Title" autocapitalize="sentences"></textarea>
             </div>
+          <section class="due" id="due" aria-label="Tasks due" hidden>
+            <button type="button" class="due-head" id="due-head" aria-expanded="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+              <span id="due-label">Due today</span><span class="due-count" id="due-count"></span>
+            </button>
+            <ul class="due-list" id="due-list"></ul>
+          </section>
           <p class="interim" id="interim" hidden></p>
           <div id="editor" class="editor"></div>
         </div>

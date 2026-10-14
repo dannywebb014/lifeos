@@ -296,7 +296,7 @@
     // Search across every app (S, / or ⌘K), with results opening in their tab.
     import { mountSpotlight } from "/lifeos/spotlight.js?v=9";
     // Add anything (A), from beside search: tasks, shopping, wish. (capture.js).
-    import { mountCapture } from "/lifeos/capture.js?v=11";
+    import { mountCapture } from "/lifeos/capture.js?v=12";
     // today. (T), beside add: what's on today in each app.
     import { mountToday } from "/lifeos/today.js?v=12";
     // Every sign-in and connection in one place, from the foot of the page.
@@ -391,7 +391,7 @@
       // unload: closed rather than kept in the background, because calendar.
       // re-signs in to Google when the phone wakes, and that takes over the whole page.
       { id: 'cal',        name: 'calendar',   url: '/calhub/', unload: true, embed: '/calhub/embed.js?v=6' },
-      { id: 'tasks',      name: 'tasks',      url: '/taskhub/', embed: '/taskhub/embed.js?v=6' },
+      { id: 'tasks',      name: 'tasks',      url: '/taskhub/', embed: '/taskhub/embed.js?v=7' },
       { id: 'food',       name: 'food',       url: '/foodhub/', embed: '/foodhub/embed.js?v=1' },
       { id: 'train',      name: 'train',      url: '/train/', embed: '/train/embed.js?v=2' },
       { id: 'breathe',    name: 'breathe',    url: '/breathhub/', embed: '/breathhub/embed.js?v=1' },
@@ -400,7 +400,7 @@
       { id: 'places',     name: 'places',     url: '/places/', embed: '/places/embed.js?v=1' },
       { id: 'media',      name: 'media',      url: '/mediahub/', embed: '/mediahub/embed.js?v=1' },
       { id: 'wish',       name: 'wish',       url: '/lifeos/wish/', embed: '/lifeos/wish/embed.js?v=1' },
-      { id: 'notes',      name: 'notes',      url: '/lifeos/notes/', embed: '/lifeos/notes/embed.js?v=15' },
+      { id: 'notes',      name: 'notes',      url: '/lifeos/notes/', embed: '/lifeos/notes/embed.js?v=16' },
     ];
     // The apps this person chose for their wheel (the welcome, or Account →
     // Apps), from the device copy of their settings (shared/settings.js keeps

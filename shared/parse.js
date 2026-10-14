@@ -27,6 +27,8 @@
 //     how long; without a time it is left in the task.
 //   - "High priority" (or "urgent", "red priority", "priority 1") makes it
 //     red; "medium" / "amber" amber; "low" / "green" green. The words go.
+//     Quickest: the space, then the level, then the task and its date:
+//     "work high call Sam friday", "low buy milk tomorrow".
 //   - "Every Monday", "weekdays", "monthly on the 1st", "first Friday of the
 //     month" … make it repeat (repeat.js). Without a date it starts on the
 //     first day the repeat lands on.
@@ -51,6 +53,14 @@ const PREP = "(?:in|for|to|into|on)\\s+";
 const LEAD = new RegExp(`^(?:${PREP})?(${ANY_SPACE})\\b(?:\\s+(?:tasks?|space)\\b)?[\\s,:;.\\-–—]*`, "i");
 // After a leading "work", these mean "work" is the task's own verb.
 const WORK_AS_VERB = /^(?:on|out|through)\b/i;
+// "high call Sam" / "work low buy milk": a level as the first word. Not
+// "low-fat yoghurt": a hyphen keeps it part of the task.
+const LEAD_LEVEL = /^(high|medium|low)(?:[\s,:;]+|\s*[–—]\s*)(?!priority\b)/i;
+const LEVELS = { high: 3, medium: 2, low: 1 };
+function takeLeadLevel(s) {
+  const m = s.match(LEAD_LEVEL);
+  return m && s.length > m[0].length ? { text: s.slice(m[0].length), level: LEVELS[m[1].toLowerCase()] } : { text: s, level: 0 };
+}
 // "... my space buy milk": a new task starts at "my space" unless it is the
 // end of "for my space" / "in my space".
 const MID_SPLIT = /(?<!\b(?:in|for|to|into|on))\s+(?=my\s*space\b)/i;
@@ -139,6 +149,9 @@ export function parseTasks(input, chrono, { now = new Date(), defaultSpace = SPA
   const tasks = [];
   for (let s of sentences) {
     s = s.replace(/[.!?]+$/, "");
+    // The level may come before the space too ("high work …").
+    let { text: afterLevel, level: stated } = takeLeadLevel(s);
+    s = afterLevel;
     const lead = s.match(LEAD);
     if (lead) {
       current = spaceFor(lead[1]);
@@ -146,13 +159,15 @@ export function parseTasks(input, chrono, { now = new Date(), defaultSpace = SPA
       const bare = !/[,:;.\-–—]/.test(lead[0]) && !/\btasks?\b/i.test(lead[0]);
       if (!(current === "work" && bare && WORK_AS_VERB.test(rest))) s = rest;
     }
+    if (!stated) ({ text: s, level: stated } = takeLeadLevel(s));
     let space = current;
     const trail = s.match(TRAIL);
     if (trail && trail.index > 0) {
       space = spaceFor(trail[1]);
       s = s.slice(0, trail.index);
     }
-    const { text: plain, priority } = takePriority(s);
+    const { text: plain, priority: worded } = takePriority(s);
+    const priority = stated || worded;
     const { text: once, repeat: said } = parseRepeat(plain);
     let { text, date, time, minutes } = takeDate(once, chrono, now);
     let repeat = null;

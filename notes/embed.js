@@ -33,9 +33,9 @@
 // (taskId "off") rather than made again.
 import { Editor, Extension, StarterKit, TaskList, TaskItem, Placeholder, Suggestion } from "/lifeos/vendor/tiptap-3.31.3.js?v=2";
 import { fill, docFor } from "/lifeos/embed.js";
-import { householdId } from "/lifeos/shared/hubtasks.js?v=5";
+import { householdId, loadTasks, completeTask, undoComplete } from "/lifeos/shared/hubtasks.js?v=5";
 import * as speech from "/lifeos/shared/speech.js?v=15";
-import { parseTasks } from "/lifeos/shared/parse.js?v=26";
+import { parseTasks } from "/lifeos/shared/parse.js?v=35";
 import { toMarkdown, fromMarkdown, plainText } from "./markdown.js?v=1";
 
 // Coloured blocks: a tint behind a line, heading, quote or code block,
@@ -500,7 +500,62 @@ export async function mount(ctx) {
     renderList();
     if (focus === "title" && !current.day) $("title").focus();
     else if (focus) focusNote("end");
+    loadDue(current);
   }
+
+  // ─── Due today, atop a day's note ─────────────────────────────────
+  // The open tasks due that day (today's note lists the overdue ones too),
+  // folded open or shut (notes.dueOpen). Ones written in this note are its
+  // own checklist lines already, so they're left out. A tick here ticks the
+  // task in tasks. (a repeating one moves on to its next date).
+  const DUE_OPEN = "notes.dueOpen";
+  const DUE_SPACE = { my: "my space", work: "work", todoist: "joint" };
+  const DUE_COLOUR = { 3: "#d9534f", 2: "#e0a030", 1: "#4caf6a" };
+  let dueTasks = [];
+  async function loadDue(note = current) {
+    if (!note?.day) { dueTasks = []; paintDue(); return; }
+    let list;
+    try { list = await loadTasks(); }
+    catch (err) { console.error("notes.: due tasks failed:", err.message); return; }
+    if (current !== note) return;
+    const late = (t) => note.day === today() && t.date < note.day;
+    dueTasks = list.filter(t => t.date && (t.date === note.day || late(t)) && t.note?.id !== note.id)
+      .map(t => ({ ...t, late: late(t) }))
+      .sort((a, b) => b.late - a.late || b.priority - a.priority || a.text.localeCompare(b.text));
+    paintDue();
+  }
+  function paintDue() {
+    const box = $("due"), open = readJSON(DUE_OPEN, true);
+    box.hidden = !current?.day || !dueTasks.length;
+    if (box.hidden) return;
+    $("due-label").textContent = current.day === today() ? "Due today" : `Due ${dayLabel(current.day)}`;
+    $("due-count").textContent = dueTasks.length;
+    $("due-head").setAttribute("aria-expanded", String(open));
+    $("due-list").hidden = !open;
+    $("due-list").innerHTML = dueTasks.map(t => `<li data-id="${esc(t.id)}"${t.done ? ' class="done"' : ""}>
+      <button type="button" class="due-tick" role="checkbox" aria-checked="${Boolean(t.done)}" aria-label="Done: ${esc(t.text)}"></button>
+      <span class="due-text">${t.priority ? `<i class="due-dot" style="background:${DUE_COLOUR[t.priority]}" aria-label="${["", "low", "medium", "high"][t.priority]} priority"></i>` : ""}${esc(t.text)}</span>
+      <span class="due-sub">${esc(DUE_SPACE[t.spaceId] || t.spaceId)}${t.late ? ` · <b>was due ${esc(new Date(`${t.date}T12:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }))}</b>` : ""}</span></li>`).join("");
+  }
+  $("due-head").addEventListener("click", () => { writeJSON(DUE_OPEN, !readJSON(DUE_OPEN, true)); paintDue(); });
+  $("due-list").addEventListener("click", async (e) => {
+    const tick = e.target.closest(".due-tick");
+    const t = tick && dueTasks.find(x => String(x.id) === tick.closest("li").dataset.id);
+    if (!t || t.done || t.busy) return;
+    t.busy = true; t.done = true; paintDue();
+    let res;
+    try { res = await completeTask(t); }
+    catch (err) { t.done = false; t.busy = false; paintDue(); toast(`Couldn’t tick it off: ${err.message}`, { err: true }); return; }
+    t.busy = false;
+    // Struck through for a moment, then gone.
+    setTimeout(() => { dueTasks = dueTasks.filter(x => x !== t); paintDue(); }, 700);
+    toast(res.next ? "Done. It’s back on its next date." : "Done.", { action: "Undo", onAction: async () => {
+      try { await undoComplete(t, { prevDate: t.date, ...res }); } catch (err) { toast(`Couldn’t undo it: ${err.message}`, { err: true }); return; }
+      t.done = false;
+      if (!dueTasks.includes(t)) dueTasks.push(t);
+      loadDue();
+    } });
+  });
 
   async function openNote(id) {
     stopMic();
@@ -645,13 +700,16 @@ export async function mount(ctx) {
     });
     return out;
   }
-  // A line as a task: its date, priority and repeat taken out of the words;
-  // a daily note's lines fall on its day.
+  // A line as a task: its space ("work high call Sam friday"), date,
+  // priority and repeat taken out of the words; a daily note's lines fall on
+  // its day. No space named: the note's.
   async function asTask(text, day) {
     await loadChrono();
-    const found = parseTasks(text, chrono, { defaultSpace: "my" });
+    const found = parseTasks(text, chrono, { defaultSpace: null });
     const one = found.length === 1 ? found[0] : null;
-    return { text: one?.text || text, date: (one || found[0])?.date || day || null, priority: one?.priority || 0, repeat: one?.repeat || null };
+    const named = (one || found[0])?.space;
+    return { text: one?.text || text, date: (one || found[0])?.date || day || null, priority: one?.priority || 0, repeat: one?.repeat || null,
+      space: named === "todoist" ? "joint" : named || null };
   }
   let warnedTasks = false;
   function tasksMissing(err) {
@@ -715,10 +773,11 @@ export async function mount(ctx) {
       if (toMake.length) {
         for (const l of toMake) waiting.add(l.taskId);
         keepPending(waiting);
-        const household_id = note.space === "joint" ? await householdFor("joint") : null;
         const rows = await Promise.all(toMake.map(async (l) => {
           const t = await asTask(l.text, note.day);
-          return { id: l.taskId, text: t.text, date: t.date, priority: t.priority, repeat: t.repeat, space: TASK_SPACES.includes(note.space) ? note.space : "my", household_id, note_id: note.id, done_at: l.checked ? new Date().toISOString() : null };
+          const taskSpace = t.space || (TASK_SPACES.includes(note.space) ? note.space : "my");
+          const household_id = taskSpace === "joint" ? await householdFor("joint") : null;
+          return { id: l.taskId, text: t.text, date: t.date, priority: t.priority, repeat: t.repeat, space: taskSpace, household_id, note_id: note.id, done_at: l.checked ? new Date().toISOString() : null };
         }));
         const { error } = await supabase.from("hub_tasks").upsert(rows, { onConflict: "id", ignoreDuplicates: true });
         if (error) { if (!tasksMissing(error)) console.error("notes.: making tasks failed:", error.message); return; }
@@ -2031,7 +2090,7 @@ export async function mount(ctx) {
 
   return {
     // Back on screen: anything changed elsewhere shows (not while typing here).
-    shown() { if (!dirty && !saving) load(); },
+    shown() { if (!dirty && !saving) load(); if (current?.day) loadDue(); },
     unmount() {
       clearTimeout(saveTimer); clearTimeout(retryTimer);
       stopMic();
